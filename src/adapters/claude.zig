@@ -111,6 +111,15 @@ pub fn parse(allocator: std.mem.Allocator, path: []const u8) !session.Session {
             if (sc == .bool and sc.bool) continue;
         }
 
+        // Claude Code injects synthetic user messages with `isMeta: true`:
+        // `<local-command-caveat>` wrappers, the expanded body of slash
+        // commands (e.g. the /implement preamble), skill-activation
+        // ("Base directory for this skill: …") preambles, and session-resume
+        // markers ("Continue from where you left off."). None are user-typed.
+        if (obj.get("isMeta")) |m| {
+            if (m == .bool and m.bool) continue;
+        }
+
         if (cwd_opt == null) {
             if (obj.get("cwd")) |cv| if (cv == .string) {
                 cwd_opt = try allocator.dupe(u8, cv.string);
@@ -134,7 +143,7 @@ pub fn parse(allocator: std.mem.Allocator, path: []const u8) !session.Session {
         const content = msg_obj.get("content") orelse continue;
 
         const text = try extractContentText(allocator, content);
-        if (text.len == 0) {
+        if (text.len == 0 or isSlashCommandMarker(text)) {
             allocator.free(text);
             continue;
         }
@@ -211,6 +220,23 @@ fn extractContentText(allocator: std.mem.Allocator, value: std.json.Value) ![]u8
         },
         else => try allocator.alloc(u8, 0),
     };
+}
+
+/// A slash command invocation (`/foo bar`) gets serialized as a user message
+/// with `<command-name>` + `<command-message>` + `<command-args>` markers and
+/// no `isMeta` flag. The expanded body that follows is `isMeta: true` and is
+/// already filtered above, but these markers themselves still leak through.
+fn isSlashCommandMarker(text: []const u8) bool {
+    const stripped = std.mem.trim(u8, text, " \t\r\n");
+    return std.mem.startsWith(u8, stripped, "<command-name>") or
+        std.mem.startsWith(u8, stripped, "<command-message>");
+}
+
+test "isSlashCommandMarker flags slash command envelopes" {
+    try std.testing.expect(isSlashCommandMarker("<command-name>/run</command-name>\n<command-args></command-args>"));
+    try std.testing.expect(isSlashCommandMarker("  \n<command-message>ship</command-message>\n<command-name>/ship</command-name>"));
+    try std.testing.expect(!isSlashCommandMarker("First prompt"));
+    try std.testing.expect(!isSlashCommandMarker("<other>nope</other>"));
 }
 
 /// Parses an ISO-8601 / RFC-3339 timestamp like "2026-05-01T10:00:00.000Z" to unix seconds.

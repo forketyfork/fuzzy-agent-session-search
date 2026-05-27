@@ -79,7 +79,7 @@ pub fn parse(allocator: std.mem.Allocator, path: []const u8) !session.Session {
         if (role != .string or !std.mem.eql(u8, role.string, "user")) continue;
         const content = payload.object.get("content") orelse continue;
         const text = try extractInputText(allocator, content);
-        if (text.len == 0) {
+        if (text.len == 0 or isWrapperEnvelope(text)) {
             allocator.free(text);
             continue;
         }
@@ -135,6 +135,23 @@ fn extractInputText(allocator: std.mem.Allocator, value: std.json.Value) ![]u8 {
 }
 
 const parseRfc3339 = @import("claude.zig").parseRfc3339;
+
+/// Codex injects synthetic user messages wrapping its preamble in
+/// `<user_instructions>…</user_instructions>` or `<environment_context>…</environment_context>`.
+/// They aren't real user prompts, so skip them when building the search corpus
+/// and preview.
+fn isWrapperEnvelope(text: []const u8) bool {
+    const stripped = std.mem.trim(u8, text, " \t\r\n");
+    return std.mem.startsWith(u8, stripped, "<user_instructions>") or
+        std.mem.startsWith(u8, stripped, "<environment_context>");
+}
+
+test "isWrapperEnvelope flags codex preamble messages" {
+    try std.testing.expect(isWrapperEnvelope("<user_instructions>\nrules\n</user_instructions>"));
+    try std.testing.expect(isWrapperEnvelope("  \n<environment_context>x</environment_context>"));
+    try std.testing.expect(!isWrapperEnvelope("Help me refactor this parser"));
+    try std.testing.expect(!isWrapperEnvelope("<other_tag>nope</other_tag>"));
+}
 
 test "discover walks codex sessions tree" {
     const allocator = std.testing.allocator;
