@@ -193,21 +193,25 @@ fn dispatch(allocator: std.mem.Allocator, opts: Opts) !void {
     var idx = try index_mod.Index.open(allocator, db_path);
     defer idx.close();
 
+    // Preview is invoked once per focused row by fzf — fast path. Skip
+    // refresh: the parent `fass` invocation already populated the index
+    // before launching fzf, and re-running refresh here would re-emit parse
+    // warnings on every keystroke into the preview pane.
+    if (opts.preview) |p| {
+        try runPreview(allocator, &idx, p.agent, p.id_or_path);
+        return;
+    }
+
     const roots = try buildRoots(allocator, home);
     defer freeRoots(allocator, roots);
 
     var progress_ctx = ProgressCtx{};
     const stderr_tty = std.fs.File.stderr().isTty();
-    const progress: ?refresh_mod.Progress = if (stderr_tty and opts.preview == null)
+    const progress: ?refresh_mod.Progress = if (stderr_tty)
         .{ .ctx = &progress_ctx, .update = ProgressCtx.update, .finish = ProgressCtx.finish }
     else
         null;
     try refresh_mod.refresh(allocator, &idx, roots, progress);
-
-    if (opts.preview) |p| {
-        try runPreview(allocator, &idx, p.agent, p.id_or_path);
-        return;
-    }
 
     const rows_all = try idx.allPickerRows(allocator);
     defer index_mod.freePickerRows(allocator, rows_all);
