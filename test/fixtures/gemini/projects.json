@@ -1,3 +1,5 @@
 {
-  "abcd1234abcd": "/Users/alice/dev/gemini-demo"
+  "projects": {
+    "/Users/alice/dev/gemini-demo": "gemini-demo"
+  }
 }
