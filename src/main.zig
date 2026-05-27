@@ -7,6 +7,7 @@ const gemini = @import("adapters/gemini.zig");
 const index_mod = @import("index.zig");
 const picker = @import("picker.zig");
 const resume_mod = @import("resume.zig");
+const refresh_mod = @import("refresh.zig");
 
 pub fn main() !void {
     var buf: [128]u8 = undefined;
@@ -22,5 +23,6 @@ test {
     _ = index_mod;
     _ = picker;
     _ = resume_mod;
+    _ = refresh_mod;
     std.testing.refAllDecls(@This());
 }
