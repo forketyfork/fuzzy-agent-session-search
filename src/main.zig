@@ -1,5 +1,6 @@
 const std = @import("std");
 const sqlite = @import("sqlite.zig");
+const session = @import("session.zig");
 
 pub fn main() !void {
     var buf: [128]u8 = undefined;
@@ -8,5 +9,6 @@ pub fn main() !void {
 }
 
 test {
+    _ = session;
     std.testing.refAllDecls(@This());
 }
