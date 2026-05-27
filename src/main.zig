@@ -328,6 +328,12 @@ fn runPicker(
         // applies --nth to the post-with-nth transformed line, so the search
         // scope is already columns 1..4 (agent, date, cwd, search corpus).
         "--with-nth=1,2,3,4",
+        // --exact: substring matching (each whitespace-separated term must
+        //   appear in the line); ditches per-character fuzzy behavior.
+        // -i: always case-insensitive (overrides fzf's smart-case default,
+        //   which would flip to case-sensitive on any uppercase character).
+        "--exact",
+        "-i",
         "--ansi",
         "--no-sort",
         "--tac",
