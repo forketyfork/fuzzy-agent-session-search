@@ -51,9 +51,35 @@ pub fn refresh(
         kept_paths.deinit(allocator);
     }
 
-    try ingestClaude(allocator, idx, roots.claude_root, &kept_paths, progress);
-    try ingestCodex(allocator, idx, roots.codex_root, &kept_paths, progress);
-    try ingestGemini(allocator, idx, roots.gemini_tmp_root, roots.gemini_projects_json, &kept_paths, progress);
+    // Discover all three agents up front so progress totals are known from
+    // the first render. Without this, the gemini row sat at 0/0 for the
+    // duration of the (much larger) claude and codex passes, which read as
+    // "no gemini sessions found" even though discovery hadn't run yet.
+    const claude_refs = try claude.discover(allocator, roots.claude_root);
+    defer {
+        for (claude_refs) |r| allocator.free(r.path);
+        allocator.free(claude_refs);
+    }
+    const codex_refs = try codex.discover(allocator, roots.codex_root);
+    defer {
+        for (codex_refs) |r| allocator.free(r.path);
+        allocator.free(codex_refs);
+    }
+    const gemini_refs = try gemini.discover(allocator, roots.gemini_tmp_root);
+    defer {
+        for (gemini_refs) |r| allocator.free(r.path);
+        allocator.free(gemini_refs);
+    }
+
+    if (progress) |p| {
+        p.update(p.ctx, .claude, 0, claude_refs.len);
+        p.update(p.ctx, .codex, 0, codex_refs.len);
+        p.update(p.ctx, .gemini, 0, gemini_refs.len);
+    }
+
+    try ingestClaude(allocator, idx, claude_refs, &kept_paths, progress);
+    try ingestCodex(allocator, idx, codex_refs, &kept_paths, progress);
+    try ingestGemini(allocator, idx, gemini_refs, roots.gemini_projects_json, &kept_paths, progress);
 
     const keep_slices = try allocator.alloc([]const u8, kept_paths.items.len);
     defer allocator.free(keep_slices);
@@ -67,17 +93,11 @@ pub fn refresh(
 fn ingestClaude(
     allocator: std.mem.Allocator,
     idx: *index_mod.Index,
-    root: []const u8,
+    refs: []const claude.FileRef,
     kept: *std.ArrayListUnmanaged([]u8),
     progress: ?Progress,
 ) !void {
-    const refs = try claude.discover(allocator, root);
-    defer {
-        for (refs) |r| allocator.free(r.path);
-        allocator.free(refs);
-    }
     const total = refs.len;
-    if (progress) |p| p.update(p.ctx, .claude, 0, total);
     for (refs, 0..) |r, i| {
         try kept.append(allocator, try allocator.dupe(u8, r.path));
         const existing = try idx.getMtime(r.path);
@@ -98,17 +118,11 @@ fn ingestClaude(
 fn ingestCodex(
     allocator: std.mem.Allocator,
     idx: *index_mod.Index,
-    root: []const u8,
+    refs: []const codex.FileRef,
     kept: *std.ArrayListUnmanaged([]u8),
     progress: ?Progress,
 ) !void {
-    const refs = try codex.discover(allocator, root);
-    defer {
-        for (refs) |r| allocator.free(r.path);
-        allocator.free(refs);
-    }
     const total = refs.len;
-    if (progress) |p| p.update(p.ctx, .codex, 0, total);
     for (refs, 0..) |r, i| {
         try kept.append(allocator, try allocator.dupe(u8, r.path));
         const existing = try idx.getMtime(r.path);
@@ -129,7 +143,7 @@ fn ingestCodex(
 fn ingestGemini(
     allocator: std.mem.Allocator,
     idx: *index_mod.Index,
-    root: []const u8,
+    refs: []const gemini.FileRef,
     projects_json: []const u8,
     kept: *std.ArrayListUnmanaged([]u8),
     progress: ?Progress,
@@ -137,13 +151,7 @@ fn ingestGemini(
     var projects = try gemini.loadProjectsMap(allocator, projects_json);
     defer gemini.freeProjectsMap(allocator, &projects);
 
-    const refs = try gemini.discover(allocator, root);
-    defer {
-        for (refs) |r| allocator.free(r.path);
-        allocator.free(refs);
-    }
     const total = refs.len;
-    if (progress) |p| p.update(p.ctx, .gemini, 0, total);
     for (refs, 0..) |r, i| {
         try kept.append(allocator, try allocator.dupe(u8, r.path));
         const existing = try idx.getMtime(r.path);
@@ -158,6 +166,67 @@ fn ingestGemini(
             logParseError(.gemini, r.path, err);
         }
         if (progress) |p| p.update(p.ctx, .gemini, i + 1, total);
+    }
+}
+
+test "refresh announces every agent's total before any per-file tick" {
+    const allocator = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const tmp_path = try tmp.dir.realpathAlloc(allocator, ".");
+    defer allocator.free(tmp_path);
+    const db_path_str = try std.fmt.allocPrint(allocator, "{s}/i.sqlite", .{tmp_path});
+    defer allocator.free(db_path_str);
+    const db_path: [:0]u8 = try allocator.dupeZ(u8, db_path_str);
+    defer allocator.free(db_path);
+
+    var idx = try index_mod.Index.open(allocator, db_path);
+    defer idx.close();
+
+    const Recorder = struct {
+        events: std.ArrayListUnmanaged(struct { agent: session.Agent, done: usize, total: usize }) = .empty,
+        allocator: std.mem.Allocator,
+
+        fn update(ctx: *anyopaque, agent: session.Agent, done: usize, total: usize) void {
+            const self: *@This() = @ptrCast(@alignCast(ctx));
+            self.events.append(self.allocator, .{ .agent = agent, .done = done, .total = total }) catch unreachable;
+        }
+        fn finish(_: *anyopaque) void {}
+    };
+
+    var recorder = Recorder{ .allocator = allocator };
+    defer recorder.events.deinit(allocator);
+
+    try refresh(allocator, &idx, .{
+        .claude_root = "test/fixtures/claude/projects",
+        .codex_root = "test/fixtures/codex/sessions",
+        .gemini_tmp_root = "test/fixtures/gemini/tmp",
+        .gemini_projects_json = "test/fixtures/gemini/projects.json",
+    }, .{ .ctx = &recorder, .update = Recorder.update, .finish = Recorder.finish });
+
+    // The regression we're guarding against: gemini's total stayed at 0/0
+    // for the entire duration of the claude+codex passes. Assert ordering
+    // directly — every agent's initial (done=0) announcement must precede
+    // the first per-file tick across all agents. No assertion on totals
+    // being non-zero, since an agent with no sessions legitimately gets 0.
+    var first_announce: [3]?usize = .{ null, null, null };
+    var first_tick: ?usize = null;
+    for (recorder.events.items, 0..) |e, i| {
+        const slot: usize = switch (e.agent) {
+            .claude => 0,
+            .codex => 1,
+            .gemini => 2,
+        };
+        if (e.done == 0 and first_announce[slot] == null) first_announce[slot] = i;
+        if (e.done > 0 and first_tick == null) first_tick = i;
+    }
+    try std.testing.expect(first_announce[0] != null);
+    try std.testing.expect(first_announce[1] != null);
+    try std.testing.expect(first_announce[2] != null);
+    if (first_tick) |t| {
+        try std.testing.expect(first_announce[0].? < t);
+        try std.testing.expect(first_announce[1].? < t);
+        try std.testing.expect(first_announce[2].? < t);
     }
 }
 

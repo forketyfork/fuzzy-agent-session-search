@@ -12,6 +12,12 @@ pub fn discover(allocator: std.mem.Allocator, root: []const u8) ![]FileRef {
 
 pub const ProjectsMap = std.StringHashMap([]const u8);
 
+const Sha256 = std.crypto.hash.sha2.Sha256;
+
+/// Reads `~/.gemini/projects.json`, which gemini-cli writes as
+/// `{"projects": {<cwd>: <short-name>}}`. The session JSONL stores
+/// `projectHash` = lowercase-hex SHA-256 of the cwd, so we key the returned
+/// map by that hash to match what `parse()` looks up.
 pub fn loadProjectsMap(allocator: std.mem.Allocator, path: []const u8) !ProjectsMap {
     var map = ProjectsMap.init(allocator);
     errdefer freeProjectsMap(allocator, &map);
@@ -34,12 +40,21 @@ pub fn loadProjectsMap(allocator: std.mem.Allocator, path: []const u8) !Projects
     defer parsed.deinit();
 
     if (parsed.value != .object) return map;
-    var it = parsed.value.object.iterator();
+    const projects_obj = if (parsed.value.object.get("projects")) |v|
+        (if (v == .object) v.object else return map)
+    else
+        parsed.value.object;
+
+    var it = projects_obj.iterator();
     while (it.next()) |entry| {
-        if (entry.value_ptr.* != .string) continue;
-        const k = try allocator.dupe(u8, entry.key_ptr.*);
+        const cwd_str = entry.key_ptr.*;
+        var digest: [Sha256.digest_length]u8 = undefined;
+        Sha256.hash(cwd_str, &digest, .{});
+        const hex = std.fmt.bytesToHex(digest, .lower);
+
+        const k = try allocator.dupe(u8, &hex);
         errdefer allocator.free(k);
-        const v = try allocator.dupe(u8, entry.value_ptr.*.string);
+        const v = try allocator.dupe(u8, cwd_str);
         try map.put(k, v);
     }
     return map;
@@ -172,13 +187,17 @@ pub fn freeSession(allocator: std.mem.Allocator, s: session.Session) void {
 
 const parseRfc3339 = @import("claude.zig").parseRfc3339;
 
+// SHA-256 of "/Users/alice/dev/gemini-demo" — the projectHash gemini writes
+// into the fixture session JSONL.
+const fixture_cwd_hash = "5f7d45a41bcf2cd210dcaffbfa15234766b572e8dad131b8ca0b45c98e0b22b6";
+
 test "loadProjectsMap reads fixture" {
     const allocator = std.testing.allocator;
     var map = try loadProjectsMap(allocator, "test/fixtures/gemini/projects.json");
     defer freeProjectsMap(allocator, &map);
     try std.testing.expectEqualStrings(
         "/Users/alice/dev/gemini-demo",
-        map.get("abcd1234abcd").?,
+        map.get(fixture_cwd_hash).?,
     );
 }
 
@@ -196,7 +215,7 @@ test "parse resolves cwd via projects map and extracts prompts" {
 
     const sess = try parse(
         allocator,
-        "test/fixtures/gemini/tmp/abcd1234abcd/chats/session-2026-05-04T05-37-77677bcc.jsonl",
+        "test/fixtures/gemini/tmp/gemini-demo/chats/session-2026-05-04T05-37-77677bcc.jsonl",
         &projects,
     );
     defer freeSession(allocator, sess);
@@ -214,7 +233,7 @@ test "parse leaves cwd null when project hash is unknown" {
 
     const sess = try parse(
         allocator,
-        "test/fixtures/gemini/tmp/abcd1234abcd/chats/session-2026-05-04T05-37-77677bcc.jsonl",
+        "test/fixtures/gemini/tmp/gemini-demo/chats/session-2026-05-04T05-37-77677bcc.jsonl",
         &projects,
     );
     defer freeSession(allocator, sess);
