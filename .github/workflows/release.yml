@@ -1,0 +1,102 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    env:
+      ZIG_GLOBAL_CACHE_DIR: ${{ github.workspace }}/.zig-cache
+      ZIG_LOCAL_CACHE_DIR: ${{ github.workspace }}/.zig-cache/local
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Cache Zig build cache
+        uses: actions/cache@v4
+        with:
+          path: .zig-cache
+          key: zig-${{ runner.os }}-${{ hashFiles('build.zig', 'build.zig.zon', 'src/**', 'test/**', 'flake.lock') }}
+          restore-keys: |
+            zig-${{ runner.os }}-
+
+      - name: Cache Nix store
+        uses: cachix/cachix-action@v15
+        with:
+          name: forketyfork
+          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+
+      - name: Run release checks
+        run: nix develop --accept-flake-config --command ./scripts/release-check.sh "${{ github.ref_name }}"
+
+  release:
+    needs: validate
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.15.2
+
+      - name: Cache Zig build cache
+        uses: actions/cache@v4
+        with:
+          path: .zig-cache
+          key: zig-release-${{ hashFiles('build.zig', 'build.zig.zon', 'src/**') }}
+          restore-keys: |
+            zig-release-
+
+      - name: Build and package artifacts
+        run: |
+          set -euo pipefail
+
+          targets=(
+            "x86_64-linux-gnu:linux-x86_64"
+            "aarch64-linux-gnu:linux-aarch64"
+            "x86_64-macos:macos-x86_64"
+            "aarch64-macos:macos-aarch64"
+          )
+
+          mkdir -p dist
+          for entry in "${targets[@]}"; do
+            triple="${entry%%:*}"
+            suffix="${entry##*:}"
+            stage="dist/fass-${TAG}-${suffix}"
+
+            echo "::group::Build ${triple}"
+            rm -rf zig-out
+            zig build -Doptimize=ReleaseFast -Dtarget="${triple}"
+            echo "::endgroup::"
+
+            mkdir -p "${stage}"
+            cp zig-out/bin/fass "${stage}/"
+            cp LICENSE README.md "${stage}/"
+            tar -czf "fass-${TAG}-${suffix}.tar.gz" -C dist "fass-${TAG}-${suffix}"
+          done
+
+          sha256sum "fass-${TAG}-"*.tar.gz > "fass-${TAG}-checksums.txt"
+          ls -la "fass-${TAG}-"*
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v3
+        with:
+          files: |
+            fass-${{ github.ref_name }}-*.tar.gz
+            fass-${{ github.ref_name }}-checksums.txt
+          generate_release_notes: true
+          fail_on_unmatched_files: true
