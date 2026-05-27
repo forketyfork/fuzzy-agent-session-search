@@ -162,7 +162,8 @@ fn dispatch(allocator: std.mem.Allocator, opts: Opts) !void {
 
     const rows_all = try idx.allPickerRows(allocator);
     defer index_mod.freePickerRows(allocator, rows_all);
-    const rows = filterByAgent(rows_all, opts.agents);
+    const rows = try filterByAgentAlloc(allocator, rows_all, opts.agents);
+    defer allocator.free(rows);
 
     if (opts.no_pick) {
         var buf: std.ArrayListUnmanaged(u8) = .empty;
@@ -176,12 +177,37 @@ fn dispatch(allocator: std.mem.Allocator, opts: Opts) !void {
     try runPicker(allocator, rows, home, &idx);
 }
 
-/// Stub — filtering by agent set is implemented in Task 17.
-fn filterByAgent(rows: []const index_mod.PickerRow, filter: Opts.AgentFilter) []const index_mod.PickerRow {
+fn filterByAgentAlloc(
+    allocator: std.mem.Allocator,
+    rows: []const index_mod.PickerRow,
+    filter: Opts.AgentFilter,
+) ![]index_mod.PickerRow {
     return switch (filter) {
-        .all => rows,
-        .only => rows,
+        .all => try allocator.dupe(index_mod.PickerRow, rows),
+        .only => |set| blk: {
+            var out: std.ArrayListUnmanaged(index_mod.PickerRow) = .empty;
+            errdefer out.deinit(allocator);
+            for (rows) |row| {
+                if (set.contains(row.agent)) try out.append(allocator, row);
+            }
+            break :blk try out.toOwnedSlice(allocator);
+        },
     };
+}
+
+test "filterByAgent retains only requested agents" {
+    const allocator = std.testing.allocator;
+    const rows = [_]index_mod.PickerRow{
+        .{ .agent = .claude, .started_at_unix = 0, .cwd = null, .first_prompt = "", .id = "1", .search_corpus = "" },
+        .{ .agent = .codex, .started_at_unix = 0, .cwd = null, .first_prompt = "", .id = "2", .search_corpus = "" },
+        .{ .agent = .gemini, .started_at_unix = 0, .cwd = null, .first_prompt = "", .id = "3", .search_corpus = "" },
+    };
+    var set = std.EnumSet(session.Agent).initEmpty();
+    set.insert(.codex);
+    const filtered = try filterByAgentAlloc(allocator, &rows, .{ .only = set });
+    defer allocator.free(filtered);
+    try std.testing.expectEqual(@as(usize, 1), filtered.len);
+    try std.testing.expectEqual(session.Agent.codex, filtered[0].agent);
 }
 
 fn resolveCacheDir(allocator: std.mem.Allocator, home: []const u8) ![]u8 {
