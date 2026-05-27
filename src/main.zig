@@ -10,8 +10,3 @@ pub fn main() !void {
 test {
     std.testing.refAllDecls(@This());
 }
-
-test "version string is non-empty" {
-    const version = "fzag v0.1.0";
-    try std.testing.expect(version.len > 0);
-}
