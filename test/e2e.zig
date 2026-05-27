@@ -23,7 +23,7 @@ test "refresh + allPickerRows ingests all three fixtures" {
         .codex_root = "test/fixtures/codex/sessions",
         .gemini_tmp_root = "test/fixtures/gemini/tmp",
         .gemini_projects_json = "test/fixtures/gemini/projects.json",
-    });
+    }, null);
 
     const rows = try idx.allPickerRows(allocator);
     defer index_mod.freePickerRows(allocator, rows);

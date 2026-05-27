@@ -10,6 +10,49 @@ const resume_mod = @import("resume.zig");
 
 const log = std.log.scoped(.main);
 
+/// Renders refresh progress to stderr in-place when stderr is a TTY.
+/// One line per agent; `\r` overwrites between updates. `finish` clears
+/// the line so the picker (or any downstream output) starts on a clean row.
+const ProgressCtx = struct {
+    counts: [3]struct { done: usize = 0, total: usize = 0 } = .{ .{}, .{}, .{} },
+
+    fn agentIdx(agent: session.Agent) usize {
+        return switch (agent) {
+            .claude => 0,
+            .codex => 1,
+            .gemini => 2,
+        };
+    }
+
+    fn render(self: *ProgressCtx) void {
+        var buf: [256]u8 = undefined;
+        const msg = std.fmt.bufPrint(
+            &buf,
+            "\rindexing: claude {d}/{d}  codex {d}/{d}  gemini {d}/{d}",
+            .{
+                self.counts[0].done, self.counts[0].total,
+                self.counts[1].done, self.counts[1].total,
+                self.counts[2].done, self.counts[2].total,
+            },
+        ) catch |err| {
+            log.debug("progress format: {}", .{err});
+            return;
+        };
+        std.fs.File.stderr().writeAll(msg) catch |err| log.debug("progress write: {}", .{err});
+    }
+
+    fn update(ctx: *anyopaque, agent: session.Agent, done: usize, total: usize) void {
+        const self: *ProgressCtx = @ptrCast(@alignCast(ctx));
+        self.counts[agentIdx(agent)] = .{ .done = done, .total = total };
+        self.render();
+    }
+
+    fn finish(_: *anyopaque) void {
+        // Clear the current line: CR, then ANSI "erase to end of line".
+        std.fs.File.stderr().writeAll("\r\x1b[K") catch |err| log.debug("progress clear: {}", .{err});
+    }
+};
+
 pub const Opts = struct {
     agents: AgentFilter = .all,
     reindex: bool = false,
@@ -153,7 +196,13 @@ fn dispatch(allocator: std.mem.Allocator, opts: Opts) !void {
     const roots = try buildRoots(allocator, home);
     defer freeRoots(allocator, roots);
 
-    try refresh_mod.refresh(allocator, &idx, roots);
+    var progress_ctx = ProgressCtx{};
+    const stderr_tty = std.fs.File.stderr().isTty();
+    const progress: ?refresh_mod.Progress = if (stderr_tty and opts.preview == null)
+        .{ .ctx = &progress_ctx, .update = ProgressCtx.update, .finish = ProgressCtx.finish }
+    else
+        null;
+    try refresh_mod.refresh(allocator, &idx, roots, progress);
 
     if (opts.preview) |p| {
         try runPreview(allocator, &idx, p.agent, p.id_or_path);
