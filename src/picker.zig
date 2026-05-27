@@ -104,6 +104,66 @@ fn appendOneLine(allocator: std.mem.Allocator, buf: *std.ArrayListUnmanaged(u8),
     }
 }
 
+pub const PickError = error{
+    FinderNotFound,
+    FinderFailed,
+    NoSelection,
+};
+
+pub const Spawned = struct {
+    selection: []u8, // owned by allocator
+};
+
+pub fn runFinder(
+    allocator: std.mem.Allocator,
+    finder_argv: []const []const u8,
+    input: []const u8,
+) !Spawned {
+    var child = std.process.Child.init(finder_argv, allocator);
+    child.stdin_behavior = .Pipe;
+    child.stdout_behavior = .Pipe;
+    child.stderr_behavior = .Inherit;
+
+    child.spawn() catch |err| switch (err) {
+        error.FileNotFound => return PickError.FinderNotFound,
+        else => return err,
+    };
+    errdefer _ = child.kill() catch |err| log.debug("kill failed: {}", .{err});
+
+    if (child.stdin) |stdin| {
+        stdin.writeAll(input) catch |err| log.debug("stdin write failed: {}", .{err});
+        stdin.close();
+        child.stdin = null;
+    }
+
+    const stdout_data: []u8 = if (child.stdout) |stdout|
+        try stdout.readToEndAlloc(allocator, 16 * 1024 * 1024)
+    else
+        try allocator.dupe(u8, "");
+    defer allocator.free(stdout_data);
+
+    const term = try child.wait();
+    switch (term) {
+        .Exited => |code| if (code != 0) return PickError.FinderFailed,
+        else => return PickError.FinderFailed,
+    }
+
+    var it = std.mem.splitScalar(u8, stdout_data, '\n');
+    while (it.next()) |line| {
+        const trimmed = std.mem.trim(u8, line, " \t\r");
+        if (trimmed.len == 0) continue;
+        return .{ .selection = try allocator.dupe(u8, trimmed) };
+    }
+    return PickError.NoSelection;
+}
+
+test "runFinder pipes input to the finder and reads selected line back" {
+    const allocator = std.testing.allocator;
+    const result = try runFinder(allocator, &.{"/bin/cat"}, "alpha\nbeta\ngamma\n");
+    defer allocator.free(result.selection);
+    try std.testing.expectEqualStrings("alpha", result.selection);
+}
+
 test "renderRows emits one tab-separated line per row" {
     const rows = [_]index_mod.PickerRow{
         .{
