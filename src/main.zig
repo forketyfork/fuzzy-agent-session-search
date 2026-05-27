@@ -5,6 +5,7 @@ const claude = @import("adapters/claude.zig");
 const codex = @import("adapters/codex.zig");
 const gemini = @import("adapters/gemini.zig");
 const index_mod = @import("index.zig");
+const picker = @import("picker.zig");
 
 pub fn main() !void {
     var buf: [128]u8 = undefined;
@@ -18,5 +19,6 @@ test {
     _ = codex;
     _ = gemini;
     _ = index_mod;
+    _ = picker;
     std.testing.refAllDecls(@This());
 }
