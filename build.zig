@@ -34,6 +34,25 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_tests.step);
 
+    const src_refresh = b.createModule(.{
+        .root_source_file = b.path("src/refresh.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    linkSqlite(b, src_refresh);
+
+    const e2e_module = b.createModule(.{
+        .root_source_file = b.path("test/e2e.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    e2e_module.addImport("refresh", src_refresh);
+    const e2e_tests = b.addTest(.{ .root_module = e2e_module });
+    const run_e2e = b.addRunArtifact(e2e_tests);
+    const e2e_step = b.step("test-e2e", "Run end-to-end tests");
+    e2e_step.dependOn(&run_e2e.step);
+    test_step.dependOn(&run_e2e.step);
+
     const zwanzig_dep = b.dependency("zwanzig", .{
         .target = target,
         .optimize = optimize,

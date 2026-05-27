@@ -6,6 +6,9 @@ const gemini = @import("adapters/gemini.zig");
 
 const log = std.log.scoped(.refresh);
 
+pub const index = index_mod;
+pub const session = @import("session.zig");
+
 pub const Roots = struct {
     claude_root: []const u8,
     codex_root: []const u8,
