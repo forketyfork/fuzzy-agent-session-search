@@ -67,7 +67,8 @@ fn appendDate(allocator: std.mem.Allocator, buf: *std.ArrayListUnmanaged(u8), un
     const m: u32 = if (mp < 10) mp + 3 else mp - 9;
     const year: i32 = if (m <= 2) y + 1 else y;
 
-    try buf.writer(allocator).print("{d:0>4}-{d:0>2}-{d:0>2} {d:0>2}:{d:0>2}", .{ year, m, d, hour, minute });
+    const year_u: u32 = @intCast(year);
+    try buf.writer(allocator).print("{d:0>4}-{d:0>2}-{d:0>2} {d:0>2}:{d:0>2}", .{ year_u, m, d, hour, minute });
 }
 
 fn appendCwdAbbrev(
