@@ -136,21 +136,26 @@ fn extractInputText(allocator: std.mem.Allocator, value: std.json.Value) ![]u8 {
 
 const parseRfc3339 = @import("claude.zig").parseRfc3339;
 
-/// Codex injects synthetic user messages wrapping its preamble in
-/// `<user_instructions>…</user_instructions>` or `<environment_context>…</environment_context>`.
-/// They aren't real user prompts, so skip them when building the search corpus
-/// and preview.
+/// Codex injects synthetic user messages wrapping its preamble:
+/// - `<user_instructions>…</user_instructions>` / `<environment_context>…</environment_context>`
+///   blocks for the global instructions and env context;
+/// - a per-project AGENTS.md dump prefixed with `# AGENTS.md instructions for <path>`,
+///   one per project tree that has an AGENTS.md.
+/// None are user-typed, so skip them when building the search corpus and preview.
 fn isWrapperEnvelope(text: []const u8) bool {
     const stripped = std.mem.trim(u8, text, " \t\r\n");
     return std.mem.startsWith(u8, stripped, "<user_instructions>") or
-        std.mem.startsWith(u8, stripped, "<environment_context>");
+        std.mem.startsWith(u8, stripped, "<environment_context>") or
+        std.mem.startsWith(u8, stripped, "# AGENTS.md instructions for ");
 }
 
 test "isWrapperEnvelope flags codex preamble messages" {
     try std.testing.expect(isWrapperEnvelope("<user_instructions>\nrules\n</user_instructions>"));
     try std.testing.expect(isWrapperEnvelope("  \n<environment_context>x</environment_context>"));
+    try std.testing.expect(isWrapperEnvelope("# AGENTS.md instructions for /Users/alice/dev/foo\n\n<INSTRUCTIONS>…"));
     try std.testing.expect(!isWrapperEnvelope("Help me refactor this parser"));
     try std.testing.expect(!isWrapperEnvelope("<other_tag>nope</other_tag>"));
+    try std.testing.expect(!isWrapperEnvelope("# Heading that happens to start with hash"));
 }
 
 test "discover walks codex sessions tree" {
