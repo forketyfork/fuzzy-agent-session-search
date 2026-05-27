@@ -10,6 +10,9 @@ test:
 run *ARGS:
     zig build run -- {{ARGS}}
 
+run-release *ARGS:
+    zig build run -Doptimize=ReleaseFast -- {{ARGS}}
+
 fmt:
     zig fmt src build.zig
 
