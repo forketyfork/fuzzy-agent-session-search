@@ -62,7 +62,8 @@ EOF
     DEVELOPER_DIR="$developer_dir"
     export DEVELOPER_DIR
 
-    echo "Applied Zig 0.15.2 macOS SDK workaround using $legacy_sdk"
+    # stderr so it doesn't pollute redirected stdout (e.g. `zig build lint-sarif > results.sarif`).
+    echo "Applied Zig 0.15.2 macOS SDK workaround using $legacy_sdk" >&2
 }
 
 _fass_setup_macos_sdk_workaround

@@ -38,8 +38,11 @@
           ];
 
           shellHook = ''
-            echo "fuzzy-agent-session-search (fass) development environment"
-            echo "Available commands: just --list"
+            # Greet on stderr so callers that capture stdout (e.g. `nix develop
+            # --command zig build lint-sarif > results.sarif` in CI) get clean
+            # program output.
+            echo "fuzzy-agent-session-search (fass) development environment" >&2
+            echo "Available commands: just --list" >&2
           ''
           + (pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isDarwin ''
             # On macOS, unset the macOS SDK env vars that Nix sets up because
