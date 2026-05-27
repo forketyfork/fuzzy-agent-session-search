@@ -28,6 +28,10 @@ pub fn discover(allocator: std.mem.Allocator, root: []const u8) ![]FileRef {
     while (try walker.next()) |entry| {
         if (entry.kind != .file) continue;
         if (!std.mem.endsWith(u8, entry.basename, ".jsonl")) continue;
+        // Claude Code stores subagent transcripts under <session-uuid>/subagents/.
+        // They are sidechain-only and not resumable from the CLI, so skip them
+        // at discovery time rather than parsing only to return EmptySession.
+        if (std.mem.indexOf(u8, entry.path, "/subagents/") != null) continue;
 
         const abs_path = try std.fs.path.join(allocator, &.{ root, entry.path });
         errdefer allocator.free(abs_path);
@@ -42,15 +46,19 @@ pub fn discover(allocator: std.mem.Allocator, root: []const u8) ![]FileRef {
     return refs.toOwnedSlice(allocator);
 }
 
-test "discover finds fixture sessions" {
+test "discover finds main sessions and skips subagents/" {
     const allocator = std.testing.allocator;
     const refs = try discover(allocator, "test/fixtures/claude/projects");
     defer {
         for (refs) |r| allocator.free(r.path);
         allocator.free(refs);
     }
+    // The fixture tree contains one main session and one subagent JSONL under
+    // a subagents/ directory. Only the main session is resumable, so we should
+    // discover exactly one file.
     try std.testing.expectEqual(@as(usize, 1), refs.len);
-    try std.testing.expect(std.mem.endsWith(u8, refs[0].path, ".jsonl"));
+    try std.testing.expect(std.mem.endsWith(u8, refs[0].path, "11111111-1111-1111-1111-111111111111.jsonl"));
+    try std.testing.expect(std.mem.indexOf(u8, refs[0].path, "/subagents/") == null);
     try std.testing.expect(refs[0].mtime_unix > 0);
 }
 
