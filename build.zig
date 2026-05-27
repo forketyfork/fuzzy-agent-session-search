@@ -60,6 +60,10 @@ pub fn build(b: *std.Build) void {
     const zwanzig_exe = zwanzig_dep.artifact("zwanzig");
 
     const lint_cmd = b.addRunArtifact(zwanzig_exe);
+    // --skip deinit-lifecycle: the rule still tracks `allocator.free` by
+    //   method rather than by pointer identity, so it flags the standard
+    //   "defer free(contents)" + "errdefer free(owned_string)" parse pattern
+    //   as a double-free risk. Re-evaluate when zwanzig refines the check.
     lint_cmd.addArgs(&.{ "--use-widening", "--skip", "deinit-lifecycle", "src/" });
     const lint_step = b.step("lint", "Run zwanzig over src/");
     lint_step.dependOn(&lint_cmd.step);
