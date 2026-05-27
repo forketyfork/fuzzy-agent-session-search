@@ -1,0 +1,4 @@
+{"timestamp":"2026-05-26T04:50:15.324Z","type":"session_meta","payload":{"id":"019e629e-78de-7272-875b-c4986c5eda0b","timestamp":"2026-05-26T04:50:13.394Z","cwd":"/Users/alice/dev/codex-demo","originator":"codex-tui","cli_version":"0.133.0"}}
+{"timestamp":"2026-05-26T04:50:16.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Help me refactor this parser"}]}}
+{"timestamp":"2026-05-26T04:50:30.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Sure — show me the file."}]}}
+{"timestamp":"2026-05-26T04:51:00.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"It's in src/parser.zig"}]}}
