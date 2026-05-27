@@ -73,6 +73,102 @@ pub const Index = struct {
         _ = c.sqlite3_close(self.db);
     }
 
+    pub fn allPickerRows(self: *Index, allocator: std.mem.Allocator) ![]PickerRow {
+        const sql =
+            \\SELECT agent, started_at, cwd, first_prompt, id, search_corpus
+            \\FROM sessions
+            \\ORDER BY updated_at DESC
+        ;
+        var stmt: ?*c.sqlite3_stmt = null;
+        if (c.sqlite3_prepare_v2(self.db, sql, -1, &stmt, null) != c.SQLITE_OK) return SqlError.PrepareFailed;
+        defer _ = c.sqlite3_finalize(stmt);
+
+        var rows: std.ArrayListUnmanaged(PickerRow) = .empty;
+        errdefer {
+            for (rows.items) |r| {
+                if (r.cwd) |s| allocator.free(s);
+                allocator.free(r.first_prompt);
+                allocator.free(r.id);
+                allocator.free(r.search_corpus);
+            }
+            rows.deinit(allocator);
+        }
+
+        while (true) {
+            const rc = c.sqlite3_step(stmt);
+            if (rc == c.SQLITE_DONE) break;
+            if (rc != c.SQLITE_ROW) return SqlError.StepFailed;
+
+            const agent_text = std.mem.span(@as([*:0]const u8, @ptrCast(c.sqlite3_column_text(stmt, 0))));
+            const agent = session.Agent.fromString(agent_text) orelse return session.ParseError.UnknownAgent;
+
+            const started_at = c.sqlite3_column_int64(stmt, 1);
+
+            const cwd_opt: ?[]u8 = if (c.sqlite3_column_type(stmt, 2) == c.SQLITE_NULL)
+                null
+            else blk: {
+                const p = c.sqlite3_column_text(stmt, 2);
+                const len: usize = @intCast(c.sqlite3_column_bytes(stmt, 2));
+                break :blk try allocator.dupe(u8, @as([*]const u8, @ptrCast(p))[0..len]);
+            };
+            errdefer if (cwd_opt) |s| allocator.free(s);
+
+            const first = try dupTextCol(allocator, stmt, 3);
+            errdefer allocator.free(first);
+            const id = try dupTextCol(allocator, stmt, 4);
+            errdefer allocator.free(id);
+            const corpus = try dupTextCol(allocator, stmt, 5);
+            errdefer allocator.free(corpus);
+
+            try rows.append(allocator, .{
+                .agent = agent,
+                .started_at_unix = started_at,
+                .cwd = cwd_opt,
+                .first_prompt = first,
+                .id = id,
+                .search_corpus = corpus,
+            });
+        }
+        return rows.toOwnedSlice(allocator);
+    }
+
+    pub fn previewPrompts(
+        self: *Index,
+        allocator: std.mem.Allocator,
+        agent: session.Agent,
+        id: []const u8,
+        limit: u32,
+    ) ![]PreviewPrompt {
+        const sql =
+            \\SELECT ts, text FROM user_prompts
+            \\WHERE session_path = (SELECT path FROM sessions WHERE agent=? AND id=? LIMIT 1)
+            \\ORDER BY idx LIMIT ?
+        ;
+        var stmt: ?*c.sqlite3_stmt = null;
+        if (c.sqlite3_prepare_v2(self.db, sql, -1, &stmt, null) != c.SQLITE_OK) return SqlError.PrepareFailed;
+        defer _ = c.sqlite3_finalize(stmt);
+        const a = agent.toString();
+        _ = c.sqlite3_bind_text(stmt, 1, a.ptr, @intCast(a.len), @ptrFromInt(0));
+        _ = c.sqlite3_bind_text(stmt, 2, id.ptr, @intCast(id.len), @ptrFromInt(0));
+        _ = c.sqlite3_bind_int(stmt, 3, @intCast(limit));
+
+        var out: std.ArrayListUnmanaged(PreviewPrompt) = .empty;
+        errdefer {
+            for (out.items) |p| allocator.free(p.text);
+            out.deinit(allocator);
+        }
+        while (true) {
+            const rc = c.sqlite3_step(stmt);
+            if (rc == c.SQLITE_DONE) break;
+            if (rc != c.SQLITE_ROW) return SqlError.StepFailed;
+            const ts = c.sqlite3_column_int64(stmt, 0);
+            const text = try dupTextCol(allocator, stmt, 1);
+            errdefer allocator.free(text);
+            try out.append(allocator, .{ .ts = ts, .text = text });
+        }
+        return out.toOwnedSlice(allocator);
+    }
+
     pub fn exec(self: *Index, sql: []const u8) !void {
         const sql_z: [:0]u8 = try self.allocator.dupeZ(u8, sql);
         defer self.allocator.free(sql_z);
@@ -214,6 +310,26 @@ pub const Index = struct {
     }
 };
 
+pub const PickerRow = struct {
+    agent: session.Agent,
+    started_at_unix: i64,
+    cwd: ?[]const u8,
+    first_prompt: []const u8,
+    id: []const u8,
+    search_corpus: []const u8,
+};
+
+pub const PreviewPrompt = struct {
+    ts: i64,
+    text: []const u8,
+};
+
+fn dupTextCol(allocator: std.mem.Allocator, stmt: ?*c.sqlite3_stmt, col: c_int) ![]u8 {
+    const p = c.sqlite3_column_text(stmt, col);
+    const len: usize = @intCast(c.sqlite3_column_bytes(stmt, col));
+    return allocator.dupe(u8, @as([*]const u8, @ptrCast(p))[0..len]);
+}
+
 test "open creates the schema and reports version 1" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -305,4 +421,62 @@ test "refresh deletes vanished sessions" {
 
     try std.testing.expect((try idx.getMtime("/a")) != null);
     try std.testing.expect((try idx.getMtime("/b")) == null);
+}
+
+pub fn freePickerRows(allocator: std.mem.Allocator, rows: []PickerRow) void {
+    for (rows) |r| {
+        if (r.cwd) |s| allocator.free(s);
+        allocator.free(r.first_prompt);
+        allocator.free(r.id);
+        allocator.free(r.search_corpus);
+    }
+    allocator.free(rows);
+}
+
+pub fn freePreviewPrompts(allocator: std.mem.Allocator, ps: []PreviewPrompt) void {
+    for (ps) |p| allocator.free(p.text);
+    allocator.free(ps);
+}
+
+test "allPickerRows returns rows sorted by updated_at desc" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    defer std.testing.allocator.free(root);
+    const db_path = try std.fmt.allocPrint(std.testing.allocator, "{s}/i.sqlite", .{root});
+    defer std.testing.allocator.free(db_path);
+    const db_path_z: [:0]u8 = try std.testing.allocator.dupeZ(u8, db_path);
+    defer std.testing.allocator.free(db_path_z);
+
+    var idx = try Index.open(std.testing.allocator, db_path_z);
+    defer idx.close();
+
+    try idx.upsertSession(.{
+        .agent = .claude,
+        .id = "old",
+        .path = "/a",
+        .cwd = null,
+        .started_at_unix = 1,
+        .updated_at_unix = 100,
+        .first_prompt = "old prompt",
+        .user_prompts = &.{},
+    });
+    try idx.upsertSession(.{
+        .agent = .codex,
+        .id = "new",
+        .path = "/b",
+        .cwd = "/x",
+        .started_at_unix = 2,
+        .updated_at_unix = 200,
+        .first_prompt = "new prompt",
+        .user_prompts = &.{},
+    });
+
+    const rows = try idx.allPickerRows(std.testing.allocator);
+    defer freePickerRows(std.testing.allocator, rows);
+
+    try std.testing.expectEqual(@as(usize, 2), rows.len);
+    try std.testing.expectEqual(session.Agent.codex, rows[0].agent);
+    try std.testing.expectEqualStrings("new", rows[0].id);
+    try std.testing.expectEqualStrings("old", rows[1].id);
 }
