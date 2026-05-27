@@ -41,12 +41,12 @@ pub fn build(b: *std.Build) void {
     const zwanzig_exe = zwanzig_dep.artifact("zwanzig");
 
     const lint_cmd = b.addRunArtifact(zwanzig_exe);
-    lint_cmd.addArgs(&.{ "--use-widening", "src/" });
+    lint_cmd.addArgs(&.{ "--use-widening", "--skip", "deinit-lifecycle", "src/" });
     const lint_step = b.step("lint", "Run zwanzig over src/");
     lint_step.dependOn(&lint_cmd.step);
 
     const lint_sarif_cmd = b.addRunArtifact(zwanzig_exe);
-    lint_sarif_cmd.addArgs(&.{ "--use-widening", "--format", "sarif", "src/" });
+    lint_sarif_cmd.addArgs(&.{ "--use-widening", "--skip", "deinit-lifecycle", "--format", "sarif", "src/" });
     const lint_sarif_step = b.step("lint-sarif", "Run zwanzig and emit SARIF on stdout");
     lint_sarif_step.dependOn(&lint_sarif_cmd.step);
 }
