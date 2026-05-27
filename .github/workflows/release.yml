@@ -3,10 +3,10 @@ name: Release
 on:
   push:
     tags:
-      - "v*.*.*"
+      - "v[0-9]+.[0-9]+.[0-9]+"
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   validate:
@@ -43,8 +43,12 @@ jobs:
   release:
     needs: validate
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     env:
       TAG: ${{ github.ref_name }}
+      ZIG_GLOBAL_CACHE_DIR: ${{ github.workspace }}/.zig-cache
+      ZIG_LOCAL_CACHE_DIR: ${{ github.workspace }}/.zig-cache/local
     steps:
       - uses: actions/checkout@v4
 
