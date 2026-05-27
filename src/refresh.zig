@@ -9,6 +9,18 @@ const log = std.log.scoped(.refresh);
 pub const index = index_mod;
 pub const session = @import("session.zig");
 
+/// `EmptySession` means the file is a genuine no-content session (e.g. the
+/// user started an agent and exited before sending a prompt). Nothing to log
+/// at warn level — surface at debug only. Any other parse failure (malformed
+/// JSON, missing required fields) is a real anomaly and stays at warn.
+fn logParseError(agent: session.Agent, path: []const u8, err: anyerror) void {
+    if (err == error.EmptySession) {
+        log.debug("{s}: empty session at {s}", .{ agent.toString(), path });
+    } else {
+        log.warn("{s} parse failed for {s}: {s}", .{ agent.toString(), path, @errorName(err) });
+    }
+}
+
 pub const Roots = struct {
     claude_root: []const u8,
     codex_root: []const u8,
@@ -50,7 +62,7 @@ fn ingestClaude(
         const existing = try idx.getMtime(r.path);
         if (existing) |m| if (m >= r.mtime_unix) continue;
         const sess = claude.parse(allocator, r.path) catch |err| {
-            log.warn("claude parse failed for {s}: {s}", .{ r.path, @errorName(err) });
+            logParseError(.claude, r.path, err);
             continue;
         };
         defer claude.freeSession(allocator, sess);
@@ -74,7 +86,7 @@ fn ingestCodex(
         const existing = try idx.getMtime(r.path);
         if (existing) |m| if (m >= r.mtime_unix) continue;
         const sess = codex.parse(allocator, r.path) catch |err| {
-            log.warn("codex parse failed for {s}: {s}", .{ r.path, @errorName(err) });
+            logParseError(.codex, r.path, err);
             continue;
         };
         defer codex.freeSession(allocator, sess);
@@ -102,7 +114,7 @@ fn ingestGemini(
         const existing = try idx.getMtime(r.path);
         if (existing) |m| if (m >= r.mtime_unix) continue;
         const sess = gemini.parse(allocator, r.path, &projects) catch |err| {
-            log.warn("gemini parse failed for {s}: {s}", .{ r.path, @errorName(err) });
+            logParseError(.gemini, r.path, err);
             continue;
         };
         defer gemini.freeSession(allocator, sess);
