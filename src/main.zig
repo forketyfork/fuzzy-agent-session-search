@@ -4,6 +4,7 @@ const session = @import("session.zig");
 const claude = @import("adapters/claude.zig");
 const codex = @import("adapters/codex.zig");
 const gemini = @import("adapters/gemini.zig");
+const index_mod = @import("index.zig");
 
 pub fn main() !void {
     var buf: [128]u8 = undefined;
@@ -16,5 +17,6 @@ test {
     _ = claude;
     _ = codex;
     _ = gemini;
+    _ = index_mod;
     std.testing.refAllDecls(@This());
 }
