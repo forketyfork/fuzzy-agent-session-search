@@ -33,6 +33,22 @@ pub fn build(b: *std.Build) void {
     const run_tests = b.addRunArtifact(tests);
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_tests.step);
+
+    const zwanzig_dep = b.dependency("zwanzig", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    const zwanzig_exe = zwanzig_dep.artifact("zwanzig");
+
+    const lint_cmd = b.addRunArtifact(zwanzig_exe);
+    lint_cmd.addArgs(&.{ "--use-widening", "src/" });
+    const lint_step = b.step("lint", "Run zwanzig over src/");
+    lint_step.dependOn(&lint_cmd.step);
+
+    const lint_sarif_cmd = b.addRunArtifact(zwanzig_exe);
+    lint_sarif_cmd.addArgs(&.{ "--use-widening", "--format", "sarif", "src/" });
+    const lint_sarif_step = b.step("lint-sarif", "Run zwanzig and emit SARIF on stdout");
+    lint_sarif_step.dependOn(&lint_sarif_cmd.step);
 }
 
 fn linkSqlite(b: *std.Build, module: *std.Build.Module) void {

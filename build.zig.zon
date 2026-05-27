@@ -3,7 +3,12 @@
     .version = "0.1.0",
     .fingerprint = 0xc95f345832b7320c,
     .minimum_zig_version = "0.15.2",
-    .dependencies = .{},
+    .dependencies = .{
+        .zwanzig = .{
+            .url = "git+https://github.com/forketyfork/zwanzig?ref=main#dc16c9303b86ac1263e9239da242952aeb77301d",
+            .hash = "zwanzig-0.12.1-oiXZluWwFwDOs3W2tYgKIX0Tgl6SqT5Nl-5OhZOoS2Al",
+        },
+    },
     .paths = .{
         "build.zig",
         "build.zig.zon",
