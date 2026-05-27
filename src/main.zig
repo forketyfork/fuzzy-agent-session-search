@@ -324,8 +324,10 @@ fn runPicker(
     try argv.appendSlice(allocator, &.{
         finder,
         "--delimiter=\t",
+        // Hide the id column (5) from display. We do NOT use --nth: fzf
+        // applies --nth to the post-with-nth transformed line, so the search
+        // scope is already columns 1..4 (agent, date, cwd, search corpus).
         "--with-nth=1,2,3,4",
-        "--nth=6",
         "--ansi",
         "--no-sort",
         "--tac",
@@ -342,7 +344,7 @@ fn runPicker(
     const agent = session.Agent.fromString(agent_str) orelse return error.MalformedSelection;
     _ = fields.next(); // date
     _ = fields.next(); // cwd-abbrev
-    _ = fields.next(); // first prompt
+    _ = fields.next(); // search corpus
     const id = fields.next() orelse return error.MalformedSelection;
 
     const cwd = try idx.lookupCwd(allocator, agent, id);

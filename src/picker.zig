@@ -6,13 +6,16 @@ const log = std.log.scoped(.picker);
 /// Renders one picker line per row. The output uses TAB as a field separator
 /// and ends each row with '\n'.
 ///
-/// Columns (per spec section 8.2):
+/// Columns:
 ///   1. agent
 ///   2. date (YYYY-MM-DD HH:MM, UTC)
 ///   3. cwd-abbrev (HOME -> ~, left-truncated to 40)
-///   4. first prompt (newlines -> spaces)
-///   5. id (hidden in fzf, used by preview/resume)
-///   6. search corpus (hidden, --nth=6 in fzf)
+///   4. search corpus — all user prompts joined, newlines stripped
+///   5. id (hidden from display via --with-nth, used by preview/resume)
+///
+/// fzf is invoked with `--with-nth=1,2,3,4` so the id column doesn't show.
+/// We deliberately do NOT use `--nth=N`: with `--with-nth` it would operate on
+/// the transformed line, breaking matching against the corpus.
 pub fn renderRows(
     allocator: std.mem.Allocator,
     writer: anytype,
@@ -35,13 +38,10 @@ pub fn renderRows(
         try appendCwdAbbrev(allocator, &line, r.cwd, home);
         try line.append(allocator, '\t');
 
-        try appendOneLine(allocator, &line, r.first_prompt);
+        try appendOneLine(allocator, &line, r.search_corpus);
         try line.append(allocator, '\t');
 
         try line.appendSlice(allocator, r.id);
-        try line.append(allocator, '\t');
-
-        try appendOneLine(allocator, &line, r.search_corpus);
         try line.append(allocator, '\n');
 
         try writer.writeAll(line.items);
@@ -173,7 +173,7 @@ test "renderRows emits one tab-separated line per row" {
             .cwd = "/Users/alice/dev/foo",
             .first_prompt = "Please refactor\nthis file",
             .id = "11111111",
-            .search_corpus = "Please refactor this file",
+            .search_corpus = "Please refactor this file later too",
         },
     };
     var buf: std.ArrayListUnmanaged(u8) = .empty;
@@ -184,12 +184,14 @@ test "renderRows emits one tab-separated line per row" {
     const out = buf.items;
     try std.testing.expect(std.mem.startsWith(u8, out, "claude\t"));
     try std.testing.expect(std.mem.indexOf(u8, out, "~/dev/foo") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out, "\nthis file") == null); // newline replaced
-    try std.testing.expect(std.mem.endsWith(u8, out, "\n"));
-    // Six columns means five tabs.
+    // The displayed snippet now comes from search_corpus (column 4), not the
+    // separate first_prompt. The corpus is already newline-stripped upstream.
+    try std.testing.expect(std.mem.indexOf(u8, out, "Please refactor this file later too") != null);
+    try std.testing.expect(std.mem.endsWith(u8, out, "11111111\n"));
+    // Five columns: agent, date, cwd, corpus, id → four tab separators.
     var tab_count: usize = 0;
     for (out) |ch| if (ch == '\t') {
         tab_count += 1;
     };
-    try std.testing.expectEqual(@as(usize, 5), tab_count);
+    try std.testing.expectEqual(@as(usize, 4), tab_count);
 }
