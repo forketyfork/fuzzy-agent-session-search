@@ -23,7 +23,7 @@ jobs:
       ZIG_GLOBAL_CACHE_DIR: ${{ github.workspace }}/.zig-cache
       ZIG_LOCAL_CACHE_DIR: ${{ github.workspace }}/.zig-cache/local
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Nix
         uses: cachix/install-nix-action@v31
@@ -32,7 +32,7 @@ jobs:
             experimental-features = nix-command flakes
 
       - name: Cache Zig build cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: .zig-cache
           key: zig-${{ runner.os }}-${{ hashFiles('build.zig', 'build.zig.zon', 'src/**', 'test/**', 'flake.lock') }}
@@ -40,7 +40,7 @@ jobs:
             zig-${{ runner.os }}-
 
       - name: Cache Nix store
-        uses: cachix/cachix-action@v15
+        uses: cachix/cachix-action@v17
         with:
           name: forketyfork
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
@@ -60,7 +60,7 @@ jobs:
       ZIG_GLOBAL_CACHE_DIR: ${{ github.workspace }}/.zig-cache
       ZIG_LOCAL_CACHE_DIR: ${{ github.workspace }}/.zig-cache/local
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Nix
         uses: cachix/install-nix-action@v31
@@ -69,7 +69,7 @@ jobs:
             experimental-features = nix-command flakes
 
       - name: Cache Zig build cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: .zig-cache
           key: zig-${{ runner.os }}-${{ hashFiles('build.zig', 'build.zig.zon', 'src/**', 'test/**', 'flake.lock') }}
@@ -77,7 +77,7 @@ jobs:
             zig-${{ runner.os }}-
 
       - name: Cache Nix store
-        uses: cachix/cachix-action@v15
+        uses: cachix/cachix-action@v17
         with:
           name: forketyfork
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
