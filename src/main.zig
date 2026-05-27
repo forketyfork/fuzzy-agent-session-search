@@ -102,7 +102,7 @@ pub fn main() !void {
             },
             else => {
                 var buf: [128]u8 = undefined;
-                const msg = try std.fmt.bufPrint(&buf, "fzag: argument error: {s}\n", .{@errorName(err)});
+                const msg = try std.fmt.bufPrint(&buf, "fass: argument error: {s}\n", .{@errorName(err)});
                 try std.fs.File.stderr().writeAll(msg);
                 std.process.exit(2);
             },
@@ -114,18 +114,18 @@ pub fn main() !void {
 
 fn printHelp() !void {
     try std.fs.File.stdout().writeAll(
-        \\fzag — unified picker for Claude Code, Codex, and Gemini sessions.
+        \\fuzzy-agent-session-search (fass) — unified picker for Claude Code, Codex, and Gemini sessions.
         \\
         \\Usage:
-        \\  fzag                          pick across all agents
-        \\  fzag --claude --codex         filter to specific agents (repeatable)
-        \\  fzag --reindex                drop the cache and rebuild
-        \\  fzag --no-pick                print the index to stdout instead of picking
-        \\  fzag preview <agent> <token>  internal, invoked by fzf
+        \\  fass                          pick across all agents
+        \\  fass --claude --codex         filter to specific agents (repeatable)
+        \\  fass --reindex                drop the cache and rebuild
+        \\  fass --no-pick                print the index to stdout instead of picking
+        \\  fass preview <agent> <token>  internal, invoked by fzf
         \\
         \\Env:
-        \\  FZAG_FINDER     fzf | sk     (default: fzf, falling back to sk)
-        \\  FZAG_CACHE_DIR  directory for the cache (default: ~/.cache/fzag)
+        \\  FASS_FINDER     fzf | sk     (default: fzf, falling back to sk)
+        \\  FASS_CACHE_DIR  directory for the cache (default: ~/.cache/fass)
         \\
     );
 }
@@ -211,8 +211,8 @@ test "filterByAgent retains only requested agents" {
 }
 
 fn resolveCacheDir(allocator: std.mem.Allocator, home: []const u8) ![]u8 {
-    if (std.posix.getenv("FZAG_CACHE_DIR")) |c| return allocator.dupe(u8, c);
-    return std.fmt.allocPrint(allocator, "{s}/.cache/fzag", .{home});
+    if (std.posix.getenv("FASS_CACHE_DIR")) |c| return allocator.dupe(u8, c);
+    return std.fmt.allocPrint(allocator, "{s}/.cache/fass", .{home});
 }
 
 fn buildRoots(allocator: std.mem.Allocator, home: []const u8) !refresh_mod.Roots {
@@ -261,7 +261,7 @@ fn runPicker(
     const exe = try std.fs.selfExePathAlloc(allocator);
     defer allocator.free(exe);
 
-    const finder = std.posix.getenv("FZAG_FINDER") orelse "fzf";
+    const finder = std.posix.getenv("FASS_FINDER") orelse "fzf";
 
     const preview_cmd = try std.fmt.allocPrint(allocator, "{s} preview {{1}} {{5}}", .{exe});
     defer allocator.free(preview_cmd);

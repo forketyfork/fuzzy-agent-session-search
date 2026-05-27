@@ -8,10 +8,10 @@
 # below reach the calling environment. If executed directly the function body
 # still runs but PATH/DEVELOPER_DIR changes will not propagate.
 #
-# Remove this once fzag no longer uses Zig 0.15.2, or once Zig's Darwin
+# Remove this once fass no longer uses Zig 0.15.2, or once Zig's Darwin
 # SDK discovery / linker handles the arm64e-only stub layout correctly.
 
-_fzag_setup_macos_sdk_workaround() {
+_fass_setup_macos_sdk_workaround() {
     legacy_sdk="/Library/Developer/CommandLineTools/SDKs/MacOSX15.4.sdk"
 
     if [ ! -d "$legacy_sdk" ]; then
@@ -65,5 +65,5 @@ EOF
     echo "Applied Zig 0.15.2 macOS SDK workaround using $legacy_sdk"
 }
 
-_fzag_setup_macos_sdk_workaround
-unset -f _fzag_setup_macos_sdk_workaround
+_fass_setup_macos_sdk_workaround
+unset -f _fass_setup_macos_sdk_workaround

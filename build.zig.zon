@@ -1,7 +1,7 @@
 .{
-    .name = .fzag,
+    .name = .fass,
     .version = "0.1.0",
-    .fingerprint = 0xc95f345832b7320c,
+    .fingerprint = 0xbb02dc67556b3e46,
     .minimum_zig_version = "0.15.2",
     .dependencies = .{
         .zwanzig = .{

@@ -1,5 +1,5 @@
 {
-  description = "fzag development environment";
+  description = "fuzzy-agent-session-search (fass) development environment";
 
   nixConfig = {
     extra-substituters = [ "https://forketyfork.cachix.org" ];
@@ -38,7 +38,7 @@
           ];
 
           shellHook = ''
-            echo "fzag development environment"
+            echo "fuzzy-agent-session-search (fass) development environment"
             echo "Available commands: just --list"
           ''
           + (pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isDarwin ''
