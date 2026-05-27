@@ -1,4 +1,4 @@
-# fzag — Unified Agentic-Session Picker
+# fass — Unified Agentic-Session Picker
 
 **Date:** 2026-05-27
 **Status:** Design
@@ -125,7 +125,7 @@ pub const ParseError = error{
 
 ## 7. Index
 
-**Location:** `~/.cache/fzag/index.sqlite` (override via `FZAG_CACHE_DIR`). Opened with `PRAGMA journal_mode=WAL`, `synchronous=NORMAL`, `foreign_keys=ON`, `temp_store=MEMORY`.
+**Location:** `~/.cache/fass/index.sqlite` (override via `FASS_CACHE_DIR`). Opened with `PRAGMA journal_mode=WAL`, `synchronous=NORMAL`, `foreign_keys=ON`, `temp_store=MEMORY`.
 
 **Schema (v1):**
 
@@ -171,19 +171,19 @@ Storing `search_corpus` denormalised on `sessions` is deliberate: the picker que
    - `DELETE FROM sessions WHERE path NOT IN (... discovered ...)` to drop vanished files.
 4. Commit.
 
-**`fzag --reindex`** drops both tables and rebuilds from scratch.
+**`fass --reindex`** drops both tables and rebuilds from scratch.
 
 **Lookup for resume.** The picker output carries `agent` and `token` (UUID or file path). One indexed query: `SELECT path, cwd FROM sessions WHERE agent=? AND id=? LIMIT 1`. No in-memory map needed; SQLite's covering index handles it.
 
 **Corruption.** If SQLite reports `SQLITE_CORRUPT` or `SQLITE_NOTADB` on open, log a warning to stderr, delete the file, and rebuild. The cache is reconstructible by definition.
 
-**Concurrency.** WAL mode means two `fzag` invocations can read concurrently; the refresh transaction serialises writes. Last writer wins, which is fine because both writers see the same source files.
+**Concurrency.** WAL mode means two `fass` invocations can read concurrently; the refresh transaction serialises writes. Last writer wins, which is fine because both writers see the same source files.
 
 ## 8. Picker
 
 ### 8.1 Choice of finder
 
-Shell out to `fzf` by default; fall back to `sk` if `fzf` is not on `$PATH`. Override via `FZAG_FINDER` env var. The finder is invoked with the user's `FZF_DEFAULT_OPTS` left intact so personal config still applies.
+Shell out to `fzf` by default; fall back to `sk` if `fzf` is not on `$PATH`. Override via `FASS_FINDER` env var. The finder is invoked with the user's `FZF_DEFAULT_OPTS` left intact so personal config still applies.
 
 ### 8.2 Line format
 
@@ -207,7 +207,7 @@ fzf \
   --delimiter=$'\t' \
   --with-nth=1,2,3,4 \
   --nth=6 \
-  --preview='fzag preview {1} {5}' \
+  --preview='fass preview {1} {5}' \
   --preview-window=right:50%:wrap \
   --ansi --no-sort --tac
 ```
@@ -215,11 +215,11 @@ fzf \
 - `--with-nth=1,2,3,4` shows only the first four columns to the user.
 - `--nth=6` restricts matching to the search-corpus field, so typing matches user prompts rather than the cwd/date noise.
 - `--no-sort --tac` preserves index order; entries are emitted sorted by `UpdatedAt` descending so the most-recently-touched sessions are at the top.
-- The `fzag` string in `--preview` is the absolute path of our own binary (resolved from `std.fs.selfExePathAlloc`), so the preview works even when fzag is not on `$PATH`.
+- The `fass` string in `--preview` is the absolute path of our own binary (resolved from `std.fs.selfExePathAlloc`), so the preview works even when fass is not on `$PATH`.
 
 ### 8.4 Preview subcommand
 
-`fzag preview <agent> <id-or-path>` is an internal subcommand fzf calls per focused row. It runs `SELECT ts, text FROM user_prompts WHERE session_path=(SELECT path FROM sessions WHERE agent=? AND id=?) ORDER BY idx LIMIT 20` and prints each prompt with its timestamp. No assistant output, no tool calls.
+`fass preview <agent> <id-or-path>` is an internal subcommand fzf calls per focused row. It runs `SELECT ts, text FROM user_prompts WHERE session_path=(SELECT path FROM sessions WHERE agent=? AND id=?) ORDER BY idx LIMIT 20` and prints each prompt with its timestamp. No assistant output, no tool calls.
 
 ## 9. Resume
 
@@ -228,26 +228,26 @@ On selection:
 1. Parse the chosen line's `agent` and `id-or-path`.
 2. `SELECT cwd FROM sessions WHERE agent=? AND id=? LIMIT 1`.
 3. If `cwd` is non-null and the directory exists, call `std.process.changeCurDir(cwd)`. If the directory is missing, log a warning via `std.log.scoped(.resume)` and continue from the current directory.
-4. Build argv per the adapter's resume command and call `std.process.execv(allocator, argv)`. The fzag process is replaced by the agent CLI, which inherits the new cwd.
+4. Build argv per the adapter's resume command and call `std.process.execv(allocator, argv)`. The fass process is replaced by the agent CLI, which inherits the new cwd.
 
 `execv` is POSIX; that is fine — all three agent CLIs are Unix-only too.
 
 ## 10. CLI Surface
 
 ```
-fzag                          pick across all agents
-fzag --claude                 filter to one or more agents (repeatable)
-fzag --codex --gemini
-fzag --reindex                force full rebuild, then pick
-fzag --no-pick                emit the index in picker line format (section 8.2)
+fass                          pick across all agents
+fass --claude                 filter to one or more agents (repeatable)
+fass --codex --gemini
+fass --reindex                force full rebuild, then pick
+fass --no-pick                emit the index in picker line format (section 8.2)
                               to stdout and exit; useful for piping/composition
-fzag preview <agent> <token>  internal, invoked by fzf
+fass preview <agent> <token>  internal, invoked by fzf
 ```
 
 Environment variables:
 
-- `FZAG_FINDER` — override the finder binary (`fzf` or `sk`).
-- `FZAG_CACHE_DIR` — override the index location (default `~/.cache/fzag`).
+- `FASS_FINDER` — override the finder binary (`fzf` or `sk`).
+- `FASS_CACHE_DIR` — override the index location (default `~/.cache/fass`).
 
 ## 11. Testing
 
@@ -256,7 +256,7 @@ All tests run via `zig build test`. Use `std.testing.allocator` everywhere — i
 - **Adapter unit tests.** Small JSONL fixtures per agent under `test/fixtures/`, exercising: a happy-path session, a session whose `cwd` is missing, a sidechain-only Claude file, a Gemini file whose project hash is unknown. Each test asserts the parsed `Session` (using `std.testing.expectEqualStrings`, `expectEqual`, etc.).
 - **Index tests.** Open an SQLite DB at `tmpDir()/index.sqlite`; write fixtures; build index; mutate one fixture's mtime; rebuild; assert only the touched session row changed (compare row hashes).
 - **Resume tests.** Expose `resume.spawn` as a function taking an `Spawner` interface (struct with one fn pointer). Tests pass a recording stub; assert the argv and cwd that would have been exec'd for each agent.
-- **End-to-end smoke test.** Run `fzag --no-pick` against a tmp directory containing one fixture per agent; assert exactly three lines in the expected format.
+- **End-to-end smoke test.** Run `fass --no-pick` against a tmp directory containing one fixture per agent; assert exactly three lines in the expected format.
 
 `zig build test` is wired in CI to fail on any leak, panic, or assertion failure.
 
@@ -272,4 +272,4 @@ All tests run via `zig build test`. Use `std.testing.allocator` everywhere — i
 2. **Gemini cwd recovery.** If `~/.gemini/projects.json` lacks an entry for a session's project hash, the cwd is unrecoverable. Behaviour: store `cwd = NULL`, display the hash in the list, skip chdir on resume.
 3. **SQLite link strategy.** Vendoring the amalgamation keeps the build hermetic but ties us to one sqlite version. If we later want runtime linking against the system sqlite (smaller binary, OS security updates), the change is contained to `build.zig` and the `@cImport`.
 4. **Schema migrations.** v1 ships with the schema above. Future bumps detect via `meta.schema_version` and rebuild from scratch — the cache is reconstructible, so we never write a real migration.
-5. **Zwanzig false positives.** The first lint pass on greenfield code may surface rules we want to disable for fzag specifically (e.g. for vendored C code under `vendor/sqlite/`). Use zwanzig's `--skip` filter and document the exclusions in `CONTRIBUTING.md`.
+5. **Zwanzig false positives.** The first lint pass on greenfield code may surface rules we want to disable for fass specifically (e.g. for vendored C code under `vendor/sqlite/`). Use zwanzig's `--skip` filter and document the exclusions in `CONTRIBUTING.md`.

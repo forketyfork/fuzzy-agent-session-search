@@ -1,14 +1,14 @@
-# fzag Implementation Plan
+# fass Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** A unified fuzzy-search CLI (`fzag`) that lists Claude Code, Codex, and Gemini CLI sessions from `~/.claude`, `~/.codex`, and `~/.gemini`, lets the user pick one via fzf/sk, and resumes it in its original working directory.
+**Goal:** A unified fuzzy-search CLI (`fass`) that lists Claude Code, Codex, and Gemini CLI sessions from `~/.claude`, `~/.codex`, and `~/.gemini`, lets the user pick one via fzf/sk, and resumes it in its original working directory.
 
-**Architecture:** Single Zig 0.15.2 binary. Three adapters parse each agent's JSONL format into a normalized `Session`. An on-disk SQLite cache (vendored sqlite3 amalgamation, linked via `@cImport`) refreshes incrementally based on file mtimes. The picker pipes one line per session to `fzf`/`sk`; on selection, fzag `chdir`s to the session's original cwd and `execv`s the right agent CLI.
+**Architecture:** Single Zig 0.15.2 binary. Three adapters parse each agent's JSONL format into a normalized `Session`. An on-disk SQLite cache (vendored sqlite3 amalgamation, linked via `@cImport`) refreshes incrementally based on file mtimes. The picker pipes one line per session to `fzf`/`sk`; on selection, fass `chdir`s to the session's original cwd and `execv`s the right agent CLI.
 
 **Tech Stack:** Zig 0.15.2, vendored SQLite 3 amalgamation, fzf/sk, [zwanzig](https://github.com/forketyfork/zwanzig) for linting, `just` for task running, GitHub Actions for CI.
 
-**Spec:** `docs/superpowers/specs/2026-05-27-fzag-design.md`
+**Spec:** `docs/superpowers/specs/2026-05-27-fass-design.md`
 
 **Style:** Follow the `zig-best-practices` skill — explicit error sets, tagged unions for mutually-exclusive state, `comptime T: type` over `anytype`, allocators passed explicitly, `std.log.scoped(.<module>)` per file, `std.testing.allocator` in tests.
 
@@ -31,7 +31,7 @@ This task produces **two commits** in this order: first the Nix dev shell (steps
 - [ ] **Step 1: `git init` and write `.gitignore`**
 
 ```bash
-cd /Users/sergei.petunin/dev/github/forketyfork/fzag
+cd <repo-root>
 git init
 ```
 
@@ -63,10 +63,10 @@ Create `scripts/setup-macos-sdk-workaround.sh` (mode `0755`):
 # below reach the calling environment. If executed directly the function body
 # still runs but PATH/DEVELOPER_DIR changes will not propagate.
 #
-# Remove this once fzag no longer uses Zig 0.15.2, or once Zig's Darwin
+# Remove this once fass no longer uses Zig 0.15.2, or once Zig's Darwin
 # SDK discovery / linker handles the arm64e-only stub layout correctly.
 
-_fzag_setup_macos_sdk_workaround() {
+_fass_setup_macos_sdk_workaround() {
     legacy_sdk="/Library/Developer/CommandLineTools/SDKs/MacOSX15.4.sdk"
 
     if [ ! -d "$legacy_sdk" ]; then
@@ -120,8 +120,8 @@ EOF
     echo "Applied Zig 0.15.2 macOS SDK workaround using $legacy_sdk"
 }
 
-_fzag_setup_macos_sdk_workaround
-unset -f _fzag_setup_macos_sdk_workaround
+_fass_setup_macos_sdk_workaround
+unset -f _fass_setup_macos_sdk_workaround
 ```
 
 Then:
@@ -134,7 +134,7 @@ chmod +x scripts/setup-macos-sdk-workaround.sh
 
 ```nix
 {
-  description = "fzag development environment";
+  description = "fass development environment";
 
   nixConfig = {
     extra-substituters = [ "https://forketyfork.cachix.org" ];
@@ -178,7 +178,7 @@ chmod +x scripts/setup-macos-sdk-workaround.sh
           ];
 
           shellHook = ''
-            echo "fzag development environment"
+            echo "fass development environment"
             echo "Available commands: just --list"
           ''
           + (pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isDarwin ''
@@ -202,7 +202,7 @@ chmod +x scripts/setup-macos-sdk-workaround.sh
 }
 ```
 
-Note: `fzf` and `sqlite` are in `nativeBuildInputs` so the dev shell has the runtime dependencies fzag needs (fzf for the picker; sqlite for ad-hoc inspection of the cache file).
+Note: `fzf` and `sqlite` are in `nativeBuildInputs` so the dev shell has the runtime dependencies fass needs (fzf for the picker; sqlite for ad-hoc inspection of the cache file).
 
 - [ ] **Step 4: Generate `flake.lock` and verify the dev shell**
 
@@ -211,12 +211,12 @@ nix flake update
 nix develop --accept-flake-config --command zig version
 ```
 
-Expected: `0.15.2`. The dev-shell greeting (`fzag development environment` etc.) may print first.
+Expected: `0.15.2`. The dev-shell greeting (`fass development environment` etc.) may print first.
 
 - [ ] **Step 5: Write a placeholder README**
 
 ```markdown
-# fzag
+# fass
 
 Unified fuzzy picker for Claude Code, Codex, and Gemini CLI session histories.
 
@@ -253,7 +253,7 @@ git commit -m "chore: add Nix dev shell with Zig 0.15.2"
 
 ```zig
 .{
-    .name = .fzag,
+    .name = .fass,
     .version = "0.1.0",
     .fingerprint = 0xfa9e5e1d1c8c4b73,
     .minimum_zig_version = "0.15.2",
@@ -287,7 +287,7 @@ pub fn build(b: *std.Build) void {
     });
 
     const exe = b.addExecutable(.{
-        .name = "fzag",
+        .name = "fass",
         .root_module = exe_module,
     });
     b.installArtifact(exe);
@@ -295,7 +295,7 @@ pub fn build(b: *std.Build) void {
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
     if (b.args) |args| run_cmd.addArgs(args);
-    const run_step = b.step("run", "Run fzag");
+    const run_step = b.step("run", "Run fass");
     run_step.dependOn(&run_cmd.step);
 
     const test_module = b.createModule(.{
@@ -316,7 +316,7 @@ pub fn build(b: *std.Build) void {
 const std = @import("std");
 
 pub fn main() !void {
-    try std.io.getStdOut().writer().print("fzag v0.1.0\n", .{});
+    try std.io.getStdOut().writer().print("fass v0.1.0\n", .{});
 }
 
 test "smoke" {
@@ -332,10 +332,10 @@ nix develop --accept-flake-config --command zig build test
 nix develop --accept-flake-config --command zig build run
 ```
 
-Expected: build succeeds with no warnings; tests pass (`1 passed`); `zig build run` prints `fzag v0.1.0`.
+Expected: build succeeds with no warnings; tests pass (`1 passed`); `zig build run` prints `fass v0.1.0`.
 
 If `std.io.getStdOut().writer().print(...)` fails to compile (the std API for stdout has shifted across recent Zig versions), report the exact error. Acceptable alternatives the implementer may try in 0.15.2:
-- `std.debug.print("fzag v0.1.0\n", .{})` — writes to stderr; sufficient for a smoke check.
+- `std.debug.print("fass v0.1.0\n", .{})` — writes to stderr; sufficient for a smoke check.
 - Whatever the 0.15.2 docs at `https://ziglang.org/documentation/0.15.2/std/` show for writing to stdout.
 
 Do **not** silently work around a compile error by changing the stdout target without reporting the change.
@@ -438,7 +438,7 @@ const sqlite = @import("sqlite.zig");
 
 pub fn main() !void {
     try std.io.getStdOut().writer().print(
-        "fzag v0.1.0 (sqlite {s})\n",
+        "fass v0.1.0 (sqlite {s})\n",
         .{sqlite.libVersion()},
     );
 }
@@ -456,7 +456,7 @@ test {
 zig build && zig build test && zig build run
 ```
 
-Expected: `fzag v0.1.0 (sqlite 3.46.0)` (or whatever version was vendored). Tests pass.
+Expected: `fass v0.1.0 (sqlite 3.46.0)` (or whatever version was vendored). Tests pass.
 
 - [ ] **Step 6: Commit**
 
@@ -735,7 +735,7 @@ const session = @import("session.zig");
 
 pub fn main() !void {
     try std.io.getStdOut().writer().print(
-        "fzag v0.1.0 (sqlite {s})\n",
+        "fass v0.1.0 (sqlite {s})\n",
         .{sqlite.libVersion()},
     );
 }
@@ -2932,7 +2932,7 @@ pub fn main() !void {
                 return;
             },
             else => {
-                try std.io.getStdErr().writer().print("fzag: argument error: {s}\n", .{@errorName(err)});
+                try std.io.getStdErr().writer().print("fass: argument error: {s}\n", .{@errorName(err)});
                 std.process.exit(2);
             },
         }
@@ -2944,18 +2944,18 @@ pub fn main() !void {
 fn printHelp() !void {
     const w = std.io.getStdOut().writer();
     try w.print(
-        \\fzag — unified picker for Claude Code, Codex, and Gemini sessions.
+        \\fass — unified picker for Claude Code, Codex, and Gemini sessions.
         \\
         \\Usage:
-        \\  fzag                          pick across all agents
-        \\  fzag --claude --codex         filter to specific agents (repeatable)
-        \\  fzag --reindex                drop the cache and rebuild
-        \\  fzag --no-pick                print the index to stdout instead of picking
-        \\  fzag preview <agent> <token>  internal, invoked by fzf
+        \\  fass                          pick across all agents
+        \\  fass --claude --codex         filter to specific agents (repeatable)
+        \\  fass --reindex                drop the cache and rebuild
+        \\  fass --no-pick                print the index to stdout instead of picking
+        \\  fass preview <agent> <token>  internal, invoked by fzf
         \\
         \\Env:
-        \\  FZAG_FINDER     fzf | sk     (default: fzf, falling back to sk)
-        \\  FZAG_CACHE_DIR  directory for the cache (default: ~/.cache/fzag)
+        \\  FASS_FINDER     fzf | sk     (default: fzf, falling back to sk)
+        \\  FASS_CACHE_DIR  directory for the cache (default: ~/.cache/fass)
         \\
     , .{});
 }
@@ -3023,8 +3023,8 @@ Append to `main.zig`:
 
 ```zig
 fn resolveCacheDir(allocator: std.mem.Allocator, home: []const u8) ![]u8 {
-    if (std.posix.getenv("FZAG_CACHE_DIR")) |c| return allocator.dupe(u8, c);
-    return std.fmt.allocPrint(allocator, "{s}/.cache/fzag", .{home});
+    if (std.posix.getenv("FASS_CACHE_DIR")) |c| return allocator.dupe(u8, c);
+    return std.fmt.allocPrint(allocator, "{s}/.cache/fass", .{home});
 }
 
 fn buildRoots(allocator: std.mem.Allocator, home: []const u8) !refresh_mod.Roots {
@@ -3071,7 +3071,7 @@ fn runPicker(
     const exe = try std.fs.selfExePathAlloc(allocator);
     defer allocator.free(exe);
 
-    const finder = std.posix.getenv("FZAG_FINDER") orelse "fzf";
+    const finder = std.posix.getenv("FASS_FINDER") orelse "fzf";
 
     const preview_cmd = try std.fmt.allocPrint(allocator, "{s} preview {{1}} {{5}}", .{exe});
     defer allocator.free(preview_cmd);
@@ -3304,11 +3304,11 @@ git commit -m "test: end-to-end refresh + picker rows across all three adapters"
 **Files:**
 - Modify: `README.md`
 
-- [ ] **Step 1: Manually run fzag end-to-end**
+- [ ] **Step 1: Manually run fass end-to-end**
 
 ```bash
 zig build -Doptimize=ReleaseFast
-./zig-out/bin/fzag --no-pick | head -5
+./zig-out/bin/fass --no-pick | head -5
 ```
 
 Expected: at least a handful of session lines from your actual `~/.claude`, `~/.codex`, and `~/.gemini`.
@@ -3316,7 +3316,7 @@ Expected: at least a handful of session lines from your actual `~/.claude`, `~/.
 Then:
 
 ```bash
-./zig-out/bin/fzag
+./zig-out/bin/fass
 ```
 
 Expected: fzf opens; typing filters by user-prompt content; preview pane shows prompts; selecting a row execs the right agent CLI in the right cwd.
@@ -3326,9 +3326,9 @@ If anything is off (e.g. fzf preview shows nothing), log the symptom under `docs
 - [ ] **Step 2: Update README**
 
 ```markdown
-# fzag
+# fass
 
-Unified fuzzy picker for Claude Code, Codex, and Gemini CLI session histories. Type a query, pick a session, fzag drops you into its original working directory and resumes it.
+Unified fuzzy picker for Claude Code, Codex, and Gemini CLI session histories. Type a query, pick a session, fass drops you into its original working directory and resumes it.
 
 ## Build
 
@@ -3341,22 +3341,22 @@ Requires Zig 0.15.2 and `fzf` (or `sk`) on `$PATH`.
 ## Usage
 
 ```
-fzag                      pick across all agents
-fzag --claude --gemini    filter to specific agents
-fzag --reindex            drop the cache and rebuild
-fzag --no-pick            print sessions instead of picking
+fass                      pick across all agents
+fass --claude --gemini    filter to specific agents
+fass --reindex            drop the cache and rebuild
+fass --no-pick            print sessions instead of picking
 ```
 
 ## Configuration
 
 | Env var          | Default              | Purpose                       |
 |------------------|----------------------|-------------------------------|
-| `FZAG_FINDER`    | `fzf` (else `sk`)    | finder binary                 |
-| `FZAG_CACHE_DIR` | `~/.cache/fzag`      | location of `index.sqlite`    |
+| `FASS_FINDER`    | `fzf` (else `sk`)    | finder binary                 |
+| `FASS_CACHE_DIR` | `~/.cache/fass`      | location of `index.sqlite`    |
 
 ## Design
 
-See `docs/superpowers/specs/2026-05-27-fzag-design.md`.
+See `docs/superpowers/specs/2026-05-27-fass-design.md`.
 ```
 
 - [ ] **Step 3: Commit**
@@ -3372,7 +3372,7 @@ git commit -m "docs: usage and configuration"
 
 You should now have:
 
-- A `fzag` binary that scans `~/.claude`, `~/.codex`, `~/.gemini`, indexes them into `~/.cache/fzag/index.sqlite`, presents them via fzf, and execs the right agent on selection.
+- A `fass` binary that scans `~/.claude`, `~/.codex`, `~/.gemini`, indexes them into `~/.cache/fass/index.sqlite`, presents them via fzf, and execs the right agent on selection.
 - 19 commits, each small and reviewable.
 - `zig build test` and `zig build test-e2e` green.
 - `zig build lint` clean (zwanzig + zig fmt).
@@ -3382,4 +3382,4 @@ Next steps (out of scope for v1, deferred):
 
 - Multi-select to delete or export selected sessions.
 - FTS5 mode for non-fzf queries.
-- A `fzag stats` subcommand (session counts per agent, recency histogram).
+- A `fass stats` subcommand (session counts per agent, recency histogram).

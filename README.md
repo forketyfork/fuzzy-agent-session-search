@@ -37,4 +37,4 @@ fass --no-pick            print sessions instead of picking
 
 ## Design
 
-See `docs/superpowers/specs/2026-05-27-fzag-design.md`. The project was scaffolded under the working title *fzag*; the spec and the dated plan retain that name as historical artifacts.
+See `docs/superpowers/specs/2026-05-27-fass-design.md`.
