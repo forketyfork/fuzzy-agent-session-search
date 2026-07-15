@@ -18,7 +18,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Install Nix
-        uses: cachix/install-nix-action@v31
+        uses: cachix/install-nix-action@v31.10.6
         with:
           extra_nix_config: |
             experimental-features = nix-command flakes
@@ -97,7 +97,7 @@ jobs:
           ls -la "fass-${TAG}-"*
 
       - name: Publish GitHub release
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@v3.0.1
         with:
           files: |
             fass-${{ github.ref_name }}-*.tar.gz
