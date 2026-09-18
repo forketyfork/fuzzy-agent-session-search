@@ -56,24 +56,23 @@ pub fn resumeSession(
     try spawner.spawn(argv, cwd);
 }
 
-fn execSpawnImpl(_: *anyopaque, argv: []const []const u8, cwd: ?[]const u8) anyerror!void {
+fn execSpawnImpl(ctx: *anyopaque, argv: []const []const u8, cwd: ?[]const u8) anyerror!void {
+    const self: *ExecSpawner = @ptrCast(@alignCast(ctx));
     if (cwd) |c| {
-        std.process.changeCurDir(c) catch |err| {
+        std.process.setCurrentPath(self.io, c) catch |err| {
             log.warn("chdir({s}) failed: {s}", .{ c, @errorName(err) });
         };
     }
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-    return std.process.execv(arena.allocator(), argv);
+    return std.process.replace(self.io, .{ .argv = argv });
 }
 
 const exec_vtable: Spawner.Vtable = .{ .spawn = execSpawnImpl };
 
 pub const ExecSpawner = struct {
-    var sentinel: u8 = 0;
+    io: std.Io,
 
-    pub fn spawner() Spawner {
-        return .{ .ctx = &sentinel, .vtable = &exec_vtable };
+    pub fn spawner(self: *ExecSpawner) Spawner {
+        return .{ .ctx = self, .vtable = &exec_vtable };
     }
 };
 

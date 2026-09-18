@@ -18,7 +18,10 @@ permissions:
 
 jobs:
   build-test-lint:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     env:
       ZIG_GLOBAL_CACHE_DIR: ${{ github.workspace }}/.zig-cache
       ZIG_LOCAL_CACHE_DIR: ${{ github.workspace }}/.zig-cache/local

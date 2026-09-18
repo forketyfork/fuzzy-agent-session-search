@@ -14,13 +14,13 @@ run-release *ARGS:
     zig build run -Doptimize=ReleaseFast -- {{ARGS}}
 
 fmt:
-    zig fmt src build.zig
+    zig fmt src test build.zig build.zig.zon
 
 fmt-check:
-    zig fmt --check src build.zig
+    zig fmt --check src test build.zig build.zig.zon
 
 lint:
-    zig fmt --check src build.zig
+    zig fmt --check src test build.zig build.zig.zon
     zig build lint
 
 ci: build test lint
