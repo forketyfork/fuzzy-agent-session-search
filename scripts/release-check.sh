@@ -45,7 +45,7 @@ else
     echo "just not found; running zig build/test/lint equivalents" >&2
     zig build
     zig build test
-    zig fmt --check src build.zig
+    zig fmt --check src test build.zig build.zig.zon
     zig build lint
 fi
 

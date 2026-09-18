@@ -6,16 +6,18 @@ const log = std.log.scoped(.adapter_codex);
 
 pub const FileRef = claude.FileRef;
 
-pub fn discover(allocator: std.mem.Allocator, root: []const u8) ![]FileRef {
-    return claude.discover(allocator, root);
+pub fn discover(allocator: std.mem.Allocator, io: std.Io, root: []const u8) ![]FileRef {
+    return claude.discover(allocator, io, root);
 }
 
-pub fn parse(allocator: std.mem.Allocator, path: []const u8) !session.Session {
-    const file = try std.fs.cwd().openFile(path, .{});
-    defer file.close();
+pub fn parse(allocator: std.mem.Allocator, io: std.Io, path: []const u8) !session.Session {
+    const file = try std.Io.Dir.cwd().openFile(io, path, .{});
+    defer file.close(io);
 
-    const stat = try file.stat();
-    const contents = try file.readToEndAlloc(allocator, 64 * 1024 * 1024);
+    const stat = try file.stat(io);
+    var read_buffer: [8192]u8 = undefined;
+    var reader = file.reader(io, &read_buffer);
+    const contents = try reader.interface.allocRemaining(allocator, .limited(64 * 1024 * 1024));
     defer allocator.free(contents);
 
     var id_opt: ?[]u8 = null;
@@ -108,7 +110,7 @@ pub fn parse(allocator: std.mem.Allocator, path: []const u8) !session.Session {
         .path = path_dup,
         .cwd = cwd_opt,
         .started_at_unix = started_at_unix,
-        .updated_at_unix = @intCast(@divTrunc(stat.mtime, std.time.ns_per_s)),
+        .updated_at_unix = stat.mtime.toSeconds(),
         .first_prompt = first,
         .user_prompts = try prompts.toOwnedSlice(allocator),
     };
@@ -160,7 +162,8 @@ test "isWrapperEnvelope flags codex preamble messages" {
 
 test "discover walks codex sessions tree" {
     const allocator = std.testing.allocator;
-    const refs = try discover(allocator, "test/fixtures/codex/sessions");
+    const io = std.testing.io;
+    const refs = try discover(allocator, io, "test/fixtures/codex/sessions");
     defer {
         for (refs) |r| allocator.free(r.path);
         allocator.free(refs);
@@ -172,6 +175,7 @@ test "parse extracts cwd, id, and user prompts from session_meta + response_item
     const allocator = std.testing.allocator;
     const sess = try parse(
         allocator,
+        std.testing.io,
         "test/fixtures/codex/sessions/2026/05/26/rollout-2026-05-26T06-50-13-019e629e-78de-7272-875b-c4986c5eda0b.jsonl",
     );
     defer freeSession(allocator, sess);

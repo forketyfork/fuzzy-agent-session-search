@@ -5,8 +5,6 @@ const session = @import("session.zig");
 const log = std.log.scoped(.index);
 const c = sqlite.c;
 
-pub const schema_version: i64 = 1;
-
 pub const SqlError = error{
     OpenFailed,
     PrepareFailed,
@@ -334,7 +332,7 @@ test "open creates the schema and reports version 1" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    const root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    const root = try tmp.dir.realPathFileAlloc(std.testing.io, ".", std.testing.allocator);
     defer std.testing.allocator.free(root);
 
     const db_path = try std.fmt.allocPrint(std.testing.allocator, "{s}/index.sqlite", .{root});
@@ -351,7 +349,7 @@ test "open creates the schema and reports version 1" {
 test "upsertSession stores a session and its prompts" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
-    const root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    const root = try tmp.dir.realPathFileAlloc(std.testing.io, ".", std.testing.allocator);
     defer std.testing.allocator.free(root);
     const db_path = try std.fmt.allocPrint(std.testing.allocator, "{s}/i.sqlite", .{root});
     defer std.testing.allocator.free(db_path);
@@ -385,7 +383,7 @@ test "upsertSession stores a session and its prompts" {
 test "refresh deletes vanished sessions" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
-    const root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    const root = try tmp.dir.realPathFileAlloc(std.testing.io, ".", std.testing.allocator);
     defer std.testing.allocator.free(root);
     const db_path = try std.fmt.allocPrint(std.testing.allocator, "{s}/i.sqlite", .{root});
     defer std.testing.allocator.free(db_path);
@@ -441,7 +439,7 @@ pub fn freePreviewPrompts(allocator: std.mem.Allocator, ps: []PreviewPrompt) voi
 test "allPickerRows returns rows sorted by updated_at desc" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
-    const root = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    const root = try tmp.dir.realPathFileAlloc(std.testing.io, ".", std.testing.allocator);
     defer std.testing.allocator.free(root);
     const db_path = try std.fmt.allocPrint(std.testing.allocator, "{s}/i.sqlite", .{root});
     defer std.testing.allocator.free(db_path);

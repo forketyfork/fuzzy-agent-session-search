@@ -83,7 +83,7 @@ Runner: `ubuntu-latest`. `needs: validate`.
 Steps:
 
 1. `actions/checkout@v4`.
-2. `mlugg/setup-zig@v2` with `version: 0.15.2`. (We use `setup-zig`
+2. `mlugg/setup-zig@v2` with `version: 0.16.0`. (We use `setup-zig`
    here, not Nix, because the release job needs only Zig — not the
    broader dev shell — and `setup-zig` is faster.)
 3. `actions/cache@v4` for `.zig-cache`.
@@ -134,7 +134,7 @@ git tag v0.2.0 && git push --tags
   │     runs `just ci`
   │
   ▼ release (ubuntu-latest, setup-zig)
-  │   checkout → setup-zig 0.15.2 → cache .zig-cache
+  │   checkout → setup-zig 0.16.0 → cache .zig-cache
   │   for each target:
   │     zig build -Doptimize=ReleaseFast -Dtarget=<triple>
   │     package fass + LICENSE + README into tar.gz

@@ -25,7 +25,7 @@ A single CLI that fuzzy-searches across Claude Code, Codex, and Gemini CLI sessi
 
 ## 3. Toolchain
 
-- **Language:** Zig 0.15.2 (matches zwanzig and the rest of the user's Zig projects).
+- **Language:** Zig 0.16.0, pinned by the Nix development shell and release workflow.
 - **Build:** `zig build` / `zig build test` / `zig build run -- <args>`. No external runtime; the resulting binary is statically linked.
 - **SQLite:** vendor the official `sqlite3.c` amalgamation under `vendor/sqlite/` and link it via `@cImport`. Avoids tracking a third-party Zig binding against the Zig release train; the C-interop pattern is well-trodden (see the zig-best-practices C-INTEROP guide).
 - **Linter:** [zwanzig](https://github.com/forketyfork/zwanzig) wired into the build from the first commit. Locally via `just lint` (mirrors zwanzig's own justfile); in CI as a SARIF upload to GitHub Code Scanning. `zig fmt --check src/` runs in the same step.
@@ -263,7 +263,7 @@ All tests run via `zig build test`. Use `std.testing.allocator` everywhere — i
 ## 12. Linting and CI
 
 - **Local:** `just lint` runs `zig fmt --check src/` and invokes zwanzig over `src/`. Zwanzig is consumed as a built binary: either declared in `build.zig.zon` and exposed as a build step (`zig build lint`), or checked out at a sibling path and called directly. Either way, the local `lint` recipe wraps both into one command. Treat any zwanzig violation as a build failure locally and in CI.
-- **CI:** GitHub Actions workflow with three jobs — `build`, `test`, `lint`. The lint job runs zwanzig with `--format sarif` against `src/` and uploads via `github/codeql-action/upload-sarif@v3` so findings show up in the Security tab. Build and test jobs use Zig 0.15.2 from the official tarball (pinned).
+- **CI:** GitHub Actions runs `just ci` (build, unit and end-to-end tests, formatting, and zwanzig) in the pinned Nix shell on Linux and macOS. A separate Linux job runs zwanzig with `--format sarif` against `src/` and uploads the results with `github/codeql-action/upload-sarif`.
 - **Pre-commit hook (optional):** `zig fmt --check src/` runs as a pre-commit; zwanzig stays in CI only to keep commits fast.
 
 ## 13. Open Questions and Risks

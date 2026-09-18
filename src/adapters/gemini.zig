@@ -6,8 +6,8 @@ const log = std.log.scoped(.adapter_gemini);
 
 pub const FileRef = claude.FileRef;
 
-pub fn discover(allocator: std.mem.Allocator, root: []const u8) ![]FileRef {
-    return claude.discover(allocator, root);
+pub fn discover(allocator: std.mem.Allocator, io: std.Io, root: []const u8) ![]FileRef {
+    return claude.discover(allocator, io, root);
 }
 
 pub const ProjectsMap = std.StringHashMap([]const u8);
@@ -18,17 +18,19 @@ const Sha256 = std.crypto.hash.sha2.Sha256;
 /// `{"projects": {<cwd>: <short-name>}}`. The session JSONL stores
 /// `projectHash` = lowercase-hex SHA-256 of the cwd, so we key the returned
 /// map by that hash to match what `parse()` looks up.
-pub fn loadProjectsMap(allocator: std.mem.Allocator, path: []const u8) !ProjectsMap {
+pub fn loadProjectsMap(allocator: std.mem.Allocator, io: std.Io, path: []const u8) !ProjectsMap {
     var map = ProjectsMap.init(allocator);
     errdefer freeProjectsMap(allocator, &map);
 
-    const file = std.fs.cwd().openFile(path, .{}) catch |err| switch (err) {
+    const file = std.Io.Dir.cwd().openFile(io, path, .{}) catch |err| switch (err) {
         error.FileNotFound => return map,
         else => return err,
     };
-    defer file.close();
+    defer file.close(io);
 
-    const contents = try file.readToEndAlloc(allocator, 4 * 1024 * 1024);
+    var read_buffer: [8192]u8 = undefined;
+    var reader = file.reader(io, &read_buffer);
+    const contents = try reader.interface.allocRemaining(allocator, .limited(4 * 1024 * 1024));
     defer allocator.free(contents);
 
     var parsed = try std.json.parseFromSlice(
@@ -69,12 +71,14 @@ pub fn freeProjectsMap(allocator: std.mem.Allocator, map: *ProjectsMap) void {
     map.deinit();
 }
 
-pub fn parse(allocator: std.mem.Allocator, path: []const u8, projects: ?*const ProjectsMap) !session.Session {
-    const file = try std.fs.cwd().openFile(path, .{});
-    defer file.close();
+pub fn parse(allocator: std.mem.Allocator, io: std.Io, path: []const u8, projects: ?*const ProjectsMap) !session.Session {
+    const file = try std.Io.Dir.cwd().openFile(io, path, .{});
+    defer file.close(io);
 
-    const stat = try file.stat();
-    const contents = try file.readToEndAlloc(allocator, 64 * 1024 * 1024);
+    const stat = try file.stat(io);
+    var read_buffer: [8192]u8 = undefined;
+    var reader = file.reader(io, &read_buffer);
+    const contents = try reader.interface.allocRemaining(allocator, .limited(64 * 1024 * 1024));
     defer allocator.free(contents);
 
     var project_hash: ?[]u8 = null;
@@ -175,7 +179,7 @@ pub fn parse(allocator: std.mem.Allocator, path: []const u8, projects: ?*const P
         .path = path_dup,
         .cwd = cwd_opt,
         .started_at_unix = started_at_unix,
-        .updated_at_unix = @intCast(@divTrunc(stat.mtime, std.time.ns_per_s)),
+        .updated_at_unix = stat.mtime.toSeconds(),
         .first_prompt = first,
         .user_prompts = try prompts.toOwnedSlice(allocator),
     };
@@ -193,7 +197,8 @@ const fixture_cwd_hash = "5f7d45a41bcf2cd210dcaffbfa15234766b572e8dad131b8ca0b45
 
 test "loadProjectsMap reads fixture" {
     const allocator = std.testing.allocator;
-    var map = try loadProjectsMap(allocator, "test/fixtures/gemini/projects.json");
+    const io = std.testing.io;
+    var map = try loadProjectsMap(allocator, io, "test/fixtures/gemini/projects.json");
     defer freeProjectsMap(allocator, &map);
     try std.testing.expectEqualStrings(
         "/Users/alice/dev/gemini-demo",
@@ -203,18 +208,21 @@ test "loadProjectsMap reads fixture" {
 
 test "loadProjectsMap returns empty when file is missing" {
     const allocator = std.testing.allocator;
-    var map = try loadProjectsMap(allocator, "test/fixtures/gemini/does-not-exist.json");
+    const io = std.testing.io;
+    var map = try loadProjectsMap(allocator, io, "test/fixtures/gemini/does-not-exist.json");
     defer freeProjectsMap(allocator, &map);
     try std.testing.expectEqual(@as(u32, 0), map.count());
 }
 
 test "parse resolves cwd via projects map and extracts prompts" {
     const allocator = std.testing.allocator;
-    var projects = try loadProjectsMap(allocator, "test/fixtures/gemini/projects.json");
+    const io = std.testing.io;
+    var projects = try loadProjectsMap(allocator, io, "test/fixtures/gemini/projects.json");
     defer freeProjectsMap(allocator, &projects);
 
     const sess = try parse(
         allocator,
+        std.testing.io,
         "test/fixtures/gemini/tmp/gemini-demo/chats/session-2026-05-04T05-37-77677bcc.jsonl",
         &projects,
     );
@@ -233,6 +241,7 @@ test "parse leaves cwd null when project hash is unknown" {
 
     const sess = try parse(
         allocator,
+        std.testing.io,
         "test/fixtures/gemini/tmp/gemini-demo/chats/session-2026-05-04T05-37-77677bcc.jsonl",
         &projects,
     );

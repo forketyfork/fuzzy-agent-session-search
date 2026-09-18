@@ -47,6 +47,9 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     e2e_module.addImport("refresh", src_refresh);
+    const e2e_options = b.addOptions();
+    e2e_options.addOptionPath("fass_exe", exe.getEmittedBin());
+    e2e_module.addOptions("build_options", e2e_options);
     const e2e_tests = b.addTest(.{ .root_module = e2e_module });
     const run_e2e = b.addRunArtifact(e2e_tests);
     const e2e_step = b.step("test-e2e", "Run end-to-end tests");
@@ -75,6 +78,13 @@ pub fn build(b: *std.Build) void {
 }
 
 fn linkSqlite(b: *std.Build, module: *std.Build.Module) void {
+    const translate_c = b.addTranslateC(.{
+        .root_source_file = b.path("vendor/sqlite/sqlite3.h"),
+        .target = module.resolved_target.?,
+        .optimize = module.optimize.?,
+        .link_libc = true,
+    });
+    module.addImport("c_sqlite", translate_c.createModule());
     module.addCSourceFile(.{
         .file = b.path("vendor/sqlite/sqlite3.c"),
         .flags = &.{

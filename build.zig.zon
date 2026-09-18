@@ -2,17 +2,18 @@
     .name = .fass,
     .version = "0.1.0",
     .fingerprint = 0xbb02dc67556b3e46,
-    .minimum_zig_version = "0.15.2",
+    .minimum_zig_version = "0.16.0",
     .dependencies = .{
         .zwanzig = .{
-            .url = "git+https://github.com/forketyfork/zwanzig?ref=v0.12.2#4187bc4905e8564f3583678731e032e3b02af112",
-            .hash = "zwanzig-0.12.2-oiXZlmGxFwAnqSPwVKeafMevXetOji1UvkeLyl60WTm8",
+            .url = "https://github.com/forketyfork/zwanzig/archive/refs/tags/v0.15.1.tar.gz",
+            .hash = "zwanzig-0.15.1-oiXZliOBGQA1fkoEDA6UxFdOv1ezRF5Jc9YY7uZnHjKe",
         },
     },
     .paths = .{
         "build.zig",
         "build.zig.zon",
         "src",
+        "test",
         "vendor",
         "README.md",
     },

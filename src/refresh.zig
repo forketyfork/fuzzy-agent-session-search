@@ -41,6 +41,7 @@ pub const Progress = struct {
 
 pub fn refresh(
     allocator: std.mem.Allocator,
+    io: std.Io,
     idx: *index_mod.Index,
     roots: Roots,
     progress: ?Progress,
@@ -55,17 +56,17 @@ pub fn refresh(
     // the first render. Without this, the gemini row sat at 0/0 for the
     // duration of the (much larger) claude and codex passes, which read as
     // "no gemini sessions found" even though discovery hadn't run yet.
-    const claude_refs = try claude.discover(allocator, roots.claude_root);
+    const claude_refs = try claude.discover(allocator, io, roots.claude_root);
     defer {
         for (claude_refs) |r| allocator.free(r.path);
         allocator.free(claude_refs);
     }
-    const codex_refs = try codex.discover(allocator, roots.codex_root);
+    const codex_refs = try codex.discover(allocator, io, roots.codex_root);
     defer {
         for (codex_refs) |r| allocator.free(r.path);
         allocator.free(codex_refs);
     }
-    const gemini_refs = try gemini.discover(allocator, roots.gemini_tmp_root);
+    const gemini_refs = try gemini.discover(allocator, io, roots.gemini_tmp_root);
     defer {
         for (gemini_refs) |r| allocator.free(r.path);
         allocator.free(gemini_refs);
@@ -77,9 +78,9 @@ pub fn refresh(
         p.update(p.ctx, .gemini, 0, gemini_refs.len);
     }
 
-    try ingestClaude(allocator, idx, claude_refs, &kept_paths, progress);
-    try ingestCodex(allocator, idx, codex_refs, &kept_paths, progress);
-    try ingestGemini(allocator, idx, gemini_refs, roots.gemini_projects_json, &kept_paths, progress);
+    try ingestClaude(allocator, io, idx, claude_refs, &kept_paths, progress);
+    try ingestCodex(allocator, io, idx, codex_refs, &kept_paths, progress);
+    try ingestGemini(allocator, io, idx, gemini_refs, roots.gemini_projects_json, &kept_paths, progress);
 
     const keep_slices = try allocator.alloc([]const u8, kept_paths.items.len);
     defer allocator.free(keep_slices);
@@ -92,6 +93,7 @@ pub fn refresh(
 
 fn ingestClaude(
     allocator: std.mem.Allocator,
+    io: std.Io,
     idx: *index_mod.Index,
     refs: []const claude.FileRef,
     kept: *std.ArrayListUnmanaged([]u8),
@@ -105,7 +107,7 @@ fn ingestClaude(
             if (progress) |p| p.update(p.ctx, .claude, i + 1, total);
             continue;
         };
-        if (claude.parse(allocator, r.path)) |sess| {
+        if (claude.parse(allocator, io, r.path)) |sess| {
             defer claude.freeSession(allocator, sess);
             try idx.upsertSession(sess);
         } else |err| {
@@ -117,6 +119,7 @@ fn ingestClaude(
 
 fn ingestCodex(
     allocator: std.mem.Allocator,
+    io: std.Io,
     idx: *index_mod.Index,
     refs: []const codex.FileRef,
     kept: *std.ArrayListUnmanaged([]u8),
@@ -130,7 +133,7 @@ fn ingestCodex(
             if (progress) |p| p.update(p.ctx, .codex, i + 1, total);
             continue;
         };
-        if (codex.parse(allocator, r.path)) |sess| {
+        if (codex.parse(allocator, io, r.path)) |sess| {
             defer codex.freeSession(allocator, sess);
             try idx.upsertSession(sess);
         } else |err| {
@@ -142,13 +145,14 @@ fn ingestCodex(
 
 fn ingestGemini(
     allocator: std.mem.Allocator,
+    io: std.Io,
     idx: *index_mod.Index,
     refs: []const gemini.FileRef,
     projects_json: []const u8,
     kept: *std.ArrayListUnmanaged([]u8),
     progress: ?Progress,
 ) !void {
-    var projects = try gemini.loadProjectsMap(allocator, projects_json);
+    var projects = try gemini.loadProjectsMap(allocator, io, projects_json);
     defer gemini.freeProjectsMap(allocator, &projects);
 
     const total = refs.len;
@@ -159,7 +163,7 @@ fn ingestGemini(
             if (progress) |p| p.update(p.ctx, .gemini, i + 1, total);
             continue;
         };
-        if (gemini.parse(allocator, r.path, &projects)) |sess| {
+        if (gemini.parse(allocator, io, r.path, &projects)) |sess| {
             defer gemini.freeSession(allocator, sess);
             try idx.upsertSession(sess);
         } else |err| {
@@ -171,9 +175,10 @@ fn ingestGemini(
 
 test "refresh announces every agent's total before any per-file tick" {
     const allocator = std.testing.allocator;
+    const io = std.testing.io;
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
-    const tmp_path = try tmp.dir.realpathAlloc(allocator, ".");
+    const tmp_path = try tmp.dir.realPathFileAlloc(io, ".", allocator);
     defer allocator.free(tmp_path);
     const db_path_str = try std.fmt.allocPrint(allocator, "{s}/i.sqlite", .{tmp_path});
     defer allocator.free(db_path_str);
@@ -197,7 +202,7 @@ test "refresh announces every agent's total before any per-file tick" {
     var recorder = Recorder{ .allocator = allocator };
     defer recorder.events.deinit(allocator);
 
-    try refresh(allocator, &idx, .{
+    try refresh(allocator, io, &idx, .{
         .claude_root = "test/fixtures/claude/projects",
         .codex_root = "test/fixtures/codex/sessions",
         .gemini_tmp_root = "test/fixtures/gemini/tmp",
@@ -232,9 +237,10 @@ test "refresh announces every agent's total before any per-file tick" {
 
 test "refresh ingests fixtures from all three agents" {
     const allocator = std.testing.allocator;
+    const io = std.testing.io;
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
-    const tmp_path = try tmp.dir.realpathAlloc(allocator, ".");
+    const tmp_path = try tmp.dir.realPathFileAlloc(io, ".", allocator);
     defer allocator.free(tmp_path);
     const db_path_str = try std.fmt.allocPrint(allocator, "{s}/i.sqlite", .{tmp_path});
     defer allocator.free(db_path_str);
@@ -244,7 +250,7 @@ test "refresh ingests fixtures from all three agents" {
     var idx = try index_mod.Index.open(allocator, db_path);
     defer idx.close();
 
-    try refresh(allocator, &idx, .{
+    try refresh(allocator, io, &idx, .{
         .claude_root = "test/fixtures/claude/projects",
         .codex_root = "test/fixtures/codex/sessions",
         .gemini_tmp_root = "test/fixtures/gemini/tmp",

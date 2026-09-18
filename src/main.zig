@@ -14,6 +14,7 @@ const log = std.log.scoped(.main);
 /// One line per agent; `\r` overwrites between updates. `finish` clears
 /// the line so the picker (or any downstream output) starts on a clean row.
 const ProgressCtx = struct {
+    io: std.Io,
     counts: [3]struct { done: usize = 0, total: usize = 0 } = .{ .{}, .{}, .{} },
 
     fn agentIdx(agent: session.Agent) usize {
@@ -38,7 +39,7 @@ const ProgressCtx = struct {
             log.debug("progress format: {}", .{err});
             return;
         };
-        std.fs.File.stderr().writeAll(msg) catch |err| log.debug("progress write: {}", .{err});
+        std.Io.File.stderr().writeStreamingAll(self.io, msg) catch |err| log.debug("progress write: {}", .{err});
     }
 
     fn update(ctx: *anyopaque, agent: session.Agent, done: usize, total: usize) void {
@@ -47,9 +48,10 @@ const ProgressCtx = struct {
         self.render();
     }
 
-    fn finish(_: *anyopaque) void {
+    fn finish(ctx: *anyopaque) void {
+        const self: *ProgressCtx = @ptrCast(@alignCast(ctx));
         // Clear the current line: CR, then ANSI "erase to end of line".
-        std.fs.File.stderr().writeAll("\r\x1b[K") catch |err| log.debug("progress clear: {}", .{err});
+        std.Io.File.stderr().writeStreamingAll(self.io, "\r\x1b[K") catch |err| log.debug("progress clear: {}", .{err});
     }
 };
 
@@ -129,34 +131,31 @@ test "parseArgs reads preview subcommand" {
     try std.testing.expectEqualStrings("uuid-1", opts.preview.?.id_or_path);
 }
 
-pub fn main() !void {
-    var gpa: std.heap.GeneralPurposeAllocator(.{}) = .{};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
-
-    const argv = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, argv);
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+    const io = init.io;
+    const argv = try init.minimal.args.toSlice(init.arena.allocator());
 
     const opts = parseArgs(allocator, argv[1..]) catch |err| {
         switch (err) {
             error.HelpRequested => {
-                try printHelp();
+                try printHelp(io);
                 return;
             },
             else => {
                 var buf: [128]u8 = undefined;
                 const msg = try std.fmt.bufPrint(&buf, "fass: argument error: {s}\n", .{@errorName(err)});
-                try std.fs.File.stderr().writeAll(msg);
+                try std.Io.File.stderr().writeStreamingAll(io, msg);
                 std.process.exit(2);
             },
         }
     };
 
-    try dispatch(allocator, opts);
+    try dispatch(allocator, io, init.environ_map, opts);
 }
 
-fn printHelp() !void {
-    try std.fs.File.stdout().writeAll(
+fn printHelp(io: std.Io) !void {
+    try std.Io.File.stdout().writeStreamingAll(io,
         \\fuzzy-agent-session-search (fass) — unified picker for Claude Code, Codex, and Gemini sessions.
         \\
         \\Usage:
@@ -173,20 +172,20 @@ fn printHelp() !void {
     );
 }
 
-fn dispatch(allocator: std.mem.Allocator, opts: Opts) !void {
+fn dispatch(allocator: std.mem.Allocator, io: std.Io, environ: *const std.process.Environ.Map, opts: Opts) !void {
     defer if (opts.preview) |p| allocator.free(p.id_or_path);
 
-    const home = std.posix.getenv("HOME") orelse return error.NoHome;
-    const cache_dir = try resolveCacheDir(allocator, home);
+    const home = environ.get("HOME") orelse return error.NoHome;
+    const cache_dir = try resolveCacheDir(allocator, environ, home);
     defer allocator.free(cache_dir);
-    try std.fs.cwd().makePath(cache_dir);
+    try std.Io.Dir.cwd().createDirPath(io, cache_dir);
 
     const db_path_str = try std.fmt.allocPrint(allocator, "{s}/index.sqlite", .{cache_dir});
     defer allocator.free(db_path_str);
     const db_path: [:0]u8 = try allocator.dupeZ(u8, db_path_str);
     defer allocator.free(db_path);
 
-    if (opts.reindex) std.fs.cwd().deleteFile(db_path) catch |err| {
+    if (opts.reindex) std.Io.Dir.cwd().deleteFile(io, db_path) catch |err| {
         log.debug("delete cache db: {}", .{err});
     };
 
@@ -198,20 +197,20 @@ fn dispatch(allocator: std.mem.Allocator, opts: Opts) !void {
     // before launching fzf, and re-running refresh here would re-emit parse
     // warnings on every keystroke into the preview pane.
     if (opts.preview) |p| {
-        try runPreview(allocator, &idx, p.agent, p.id_or_path);
+        try runPreview(allocator, io, &idx, p.agent, p.id_or_path);
         return;
     }
 
     const roots = try buildRoots(allocator, home);
     defer freeRoots(allocator, roots);
 
-    var progress_ctx = ProgressCtx{};
-    const stderr_tty = std.fs.File.stderr().isTty();
+    var progress_ctx = ProgressCtx{ .io = io };
+    const stderr_tty = try std.Io.File.stderr().isTty(io);
     const progress: ?refresh_mod.Progress = if (stderr_tty)
         .{ .ctx = &progress_ctx, .update = ProgressCtx.update, .finish = ProgressCtx.finish }
     else
         null;
-    try refresh_mod.refresh(allocator, &idx, roots, progress);
+    try refresh_mod.refresh(allocator, io, &idx, roots, progress);
 
     const rows_all = try idx.allPickerRows(allocator);
     defer index_mod.freePickerRows(allocator, rows_all);
@@ -219,15 +218,14 @@ fn dispatch(allocator: std.mem.Allocator, opts: Opts) !void {
     defer allocator.free(rows);
 
     if (opts.no_pick) {
-        var buf: std.ArrayListUnmanaged(u8) = .empty;
-        defer buf.deinit(allocator);
-        var w = buf.writer(allocator);
-        try picker.renderRows(allocator, &w, rows, home);
-        try std.fs.File.stdout().writeAll(buf.items);
+        var buf: std.Io.Writer.Allocating = .init(allocator);
+        defer buf.deinit();
+        try picker.renderRows(allocator, &buf.writer, rows, home);
+        try std.Io.File.stdout().writeStreamingAll(io, buf.written());
         return;
     }
 
-    try runPicker(allocator, rows, home, &idx);
+    try runPicker(allocator, io, environ, rows, home, &idx);
 }
 
 fn filterByAgentAlloc(
@@ -263,8 +261,8 @@ test "filterByAgent retains only requested agents" {
     try std.testing.expectEqual(session.Agent.codex, filtered[0].agent);
 }
 
-fn resolveCacheDir(allocator: std.mem.Allocator, home: []const u8) ![]u8 {
-    if (std.posix.getenv("FASS_CACHE_DIR")) |c| return allocator.dupe(u8, c);
+fn resolveCacheDir(allocator: std.mem.Allocator, environ: *const std.process.Environ.Map, home: []const u8) ![]u8 {
+    if (environ.get("FASS_CACHE_DIR")) |c| return allocator.dupe(u8, c);
     return std.fmt.allocPrint(allocator, "{s}/.cache/fass", .{home});
 }
 
@@ -286,6 +284,7 @@ fn freeRoots(allocator: std.mem.Allocator, r: refresh_mod.Roots) void {
 
 fn runPreview(
     allocator: std.mem.Allocator,
+    io: std.Io,
     idx: *index_mod.Index,
     agent: session.Agent,
     id_or_path: []const u8,
@@ -295,26 +294,27 @@ fn runPreview(
     var buf: std.ArrayListUnmanaged(u8) = .empty;
     defer buf.deinit(allocator);
     for (prompts) |p| {
-        try buf.writer(allocator).print("[{d}] {s}\n\n", .{ p.ts, p.text });
+        try buf.print(allocator, "[{d}] {s}\n\n", .{ p.ts, p.text });
     }
-    try std.fs.File.stdout().writeAll(buf.items);
+    try std.Io.File.stdout().writeStreamingAll(io, buf.items);
 }
 
 fn runPicker(
     allocator: std.mem.Allocator,
+    io: std.Io,
+    environ: *const std.process.Environ.Map,
     rows: []const index_mod.PickerRow,
     home: []const u8,
     idx: *index_mod.Index,
 ) !void {
-    var buf: std.ArrayListUnmanaged(u8) = .empty;
-    defer buf.deinit(allocator);
-    var w = buf.writer(allocator);
-    try picker.renderRows(allocator, &w, rows, home);
+    var buf: std.Io.Writer.Allocating = .init(allocator);
+    defer buf.deinit();
+    try picker.renderRows(allocator, &buf.writer, rows, home);
 
-    const exe = try std.fs.selfExePathAlloc(allocator);
+    const exe = try std.process.executablePathAlloc(io, allocator);
     defer allocator.free(exe);
 
-    const finder = std.posix.getenv("FASS_FINDER") orelse "fzf";
+    const finder = environ.get("FASS_FINDER") orelse "fzf";
 
     const preview_cmd = try std.fmt.allocPrint(allocator, "{s} preview {{1}} {{5}}", .{exe});
     defer allocator.free(preview_cmd);
@@ -342,7 +342,7 @@ fn runPicker(
     try argv.append(allocator, "--preview");
     try argv.append(allocator, preview_cmd);
 
-    const sel = try picker.runFinder(allocator, argv.items, buf.items);
+    const sel = try picker.runFinder(allocator, io, argv.items, buf.written());
     defer allocator.free(sel.selection);
 
     var fields = std.mem.splitScalar(u8, sel.selection, '\t');
@@ -356,7 +356,8 @@ fn runPicker(
     const cwd = try idx.lookupCwd(allocator, agent, id);
     defer if (cwd) |s| allocator.free(s);
 
-    const sp = resume_mod.ExecSpawner.spawner();
+    var exec_spawner = resume_mod.ExecSpawner{ .io = io };
+    const sp = exec_spawner.spawner();
     try resume_mod.resumeSession(sp, agent, id, cwd, allocator);
 }
 

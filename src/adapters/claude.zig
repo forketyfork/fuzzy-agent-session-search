@@ -9,23 +9,23 @@ pub const FileRef = struct {
 };
 
 /// Walk `root` (typically `~/.claude/projects`) and return a slice of jsonl files.
-pub fn discover(allocator: std.mem.Allocator, root: []const u8) ![]FileRef {
+pub fn discover(allocator: std.mem.Allocator, io: std.Io, root: []const u8) ![]FileRef {
     var refs: std.ArrayListUnmanaged(FileRef) = .empty;
     errdefer {
         for (refs.items) |r| allocator.free(r.path);
         refs.deinit(allocator);
     }
 
-    var root_dir = std.fs.cwd().openDir(root, .{ .iterate = true }) catch |err| switch (err) {
+    var root_dir = std.Io.Dir.cwd().openDir(io, root, .{ .iterate = true }) catch |err| switch (err) {
         error.FileNotFound => return refs.toOwnedSlice(allocator),
         else => return err,
     };
-    defer root_dir.close();
+    defer root_dir.close(io);
 
     var walker = try root_dir.walk(allocator);
     defer walker.deinit();
 
-    while (try walker.next()) |entry| {
+    while (try walker.next(io)) |entry| {
         if (entry.kind != .file) continue;
         if (!std.mem.endsWith(u8, entry.basename, ".jsonl")) continue;
         // Claude Code stores subagent transcripts under <session-uuid>/subagents/.
@@ -36,10 +36,10 @@ pub fn discover(allocator: std.mem.Allocator, root: []const u8) ![]FileRef {
         const abs_path = try std.fs.path.join(allocator, &.{ root, entry.path });
         errdefer allocator.free(abs_path);
 
-        const stat = try entry.dir.statFile(entry.basename);
+        const stat = try entry.dir.statFile(io, entry.basename, .{});
         try refs.append(allocator, .{
             .path = abs_path,
-            .mtime_unix = @intCast(@divTrunc(stat.mtime, std.time.ns_per_s)),
+            .mtime_unix = stat.mtime.toSeconds(),
         });
     }
 
@@ -48,7 +48,8 @@ pub fn discover(allocator: std.mem.Allocator, root: []const u8) ![]FileRef {
 
 test "discover finds main sessions and skips subagents/" {
     const allocator = std.testing.allocator;
-    const refs = try discover(allocator, "test/fixtures/claude/projects");
+    const io = std.testing.io;
+    const refs = try discover(allocator, io, "test/fixtures/claude/projects");
     defer {
         for (refs) |r| allocator.free(r.path);
         allocator.free(refs);
@@ -64,12 +65,14 @@ test "discover finds main sessions and skips subagents/" {
 
 /// Parses a Claude JSONL file into a `Session`. All returned strings are
 /// allocated from `allocator`.
-pub fn parse(allocator: std.mem.Allocator, path: []const u8) !session.Session {
-    const file = try std.fs.cwd().openFile(path, .{});
-    defer file.close();
+pub fn parse(allocator: std.mem.Allocator, io: std.Io, path: []const u8) !session.Session {
+    const file = try std.Io.Dir.cwd().openFile(io, path, .{});
+    defer file.close(io);
 
-    const stat = try file.stat();
-    const contents = try file.readToEndAlloc(allocator, 64 * 1024 * 1024);
+    const stat = try file.stat(io);
+    var read_buffer: [8192]u8 = undefined;
+    var reader = file.reader(io, &read_buffer);
+    const contents = try reader.interface.allocRemaining(allocator, .limited(64 * 1024 * 1024));
     defer allocator.free(contents);
 
     var prompts: std.ArrayListUnmanaged(session.UserPrompt) = .empty;
@@ -185,7 +188,7 @@ pub fn parse(allocator: std.mem.Allocator, path: []const u8) !session.Session {
         .path = path_dup,
         .cwd = cwd_opt,
         .started_at_unix = started_at_unix,
-        .updated_at_unix = @intCast(@divTrunc(stat.mtime, std.time.ns_per_s)),
+        .updated_at_unix = stat.mtime.toSeconds(),
         .first_prompt = first,
         .user_prompts = user_prompts,
     };
@@ -264,6 +267,7 @@ test "parse extracts user prompts and skips sidechains" {
     const allocator = std.testing.allocator;
     const sess = try parse(
         allocator,
+        std.testing.io,
         "test/fixtures/claude/projects/-Users-alice-dev-foo/11111111-1111-1111-1111-111111111111.jsonl",
     );
     defer freeSession(allocator, sess);
